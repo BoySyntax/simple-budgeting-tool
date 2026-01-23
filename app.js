@@ -676,23 +676,8 @@ import { createClient } from "@supabase/supabase-js";
   function renderBudgetSummary({ allocatedByDetail, spentByDetail }) {
     if (!el.budgetSummaryTbody) return;
     el.budgetSummaryTbody.innerHTML = "";
-    
-    const usedCategories = new Set(
-      state.expenses
-        .map((e) => e?.objectOfExpenditure)
-        .filter((x) => typeof x === "string" && x.trim().length > 0)
-    );
-
-    const budgetSummarySection = el.budgetSummaryTbody.closest("section");
-    if (budgetSummarySection) {
-      budgetSummarySection.style.display = usedCategories.size === 0 ? "none" : "";
-    }
-
-    if (usedCategories.size === 0) return;
-
-    // Only show categories that have at least one expense row, to avoid a huge empty table.
+  
     for (const category of objectOfExpenditures) {
-      if (!usedCategories.has(category)) continue;
       const detailRow = document.createElement("tr");
       detailRow.className = "detail-row";
       
