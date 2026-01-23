@@ -344,6 +344,12 @@ h2 {
   outline: none;
 }
 
+select option,
+select optgroup {
+  color: #000;
+  background: #fff;
+}
+
 .input:focus, select:focus {
   border-color: rgba(110, 168, 254, 0.55);
   box-shadow: 0 0 0 3px rgba(110, 168, 254, 0.16);
