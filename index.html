@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login - Simple Budgeting Tool</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container auth-container">
+    <section class="card auth-card" id="loginCard">
+      <div class="auth-header">
+        <div class="auth-badge">Secure Access</div>
+        <h1 class="auth-title">Simple Budgeting Tool</h1>
+        <p class="subtitle">Sign in to continue</p>
+      </div>
+
+      <div class="auth-actions">
+        <button id="btnGoogle" class="btn btn-google" type="button">Continue with Google</button>
+        <div class="auth-divider" aria-hidden="true">
+          <span>or</span>
+        </div>
+      </div>
+
+      <div class="login-grid">
+        <div>
+          <label class="label" for="loginEmail">Email</label>
+          <input id="loginEmail" class="input" type="email" autocomplete="username" placeholder="shared@email.com" />
+        </div>
+        <div>
+          <label class="label" for="loginPassword">Password</label>
+          <input id="loginPassword" class="input" type="password" autocomplete="current-password" placeholder="password" />
+        </div>
+        <div class="login-actions">
+          <button id="btnLogin" class="btn primary" type="button">Login</button>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error" hidden></div>
+    </section>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

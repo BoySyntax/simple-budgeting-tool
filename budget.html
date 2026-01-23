@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Budget Code Details - Simple Budgeting Tool</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1 id="budgetTitle">Budget Code Details</h1>
+        <p class="subtitle">Detailed budget and expense breakdown for this budget code</p>
+      </div>
+      <div class="header-actions">
+        <button id="btnBack" class="btn" type="button">← Back to Summary</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Budget Overview</h2>
+      <div class="table-wrap">
+        <table class="table budget-overview-table">
+          <thead>
+            <tr>
+              <th>Province</th>
+              <th class="num">Budget</th>
+              <th class="num">Expense</th>
+              <th class="num">Remaining</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="budgetOverviewTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span class="muted">Data is stored in Supabase (PostgreSQL). This page requires login.</span>
+    </footer>
+  </div>
+
+  <script type="module" src="./budget.js"></script>
+</body>
+</html>

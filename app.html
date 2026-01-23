@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simple Budgeting Tool</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>Simple Budgeting Tool</h1>
+        <p class="subtitle">Expense input only. Totals/subtotals update automatically.</p>
+      </div>
+      <div class="header-actions">
+        <span id="authStatus" class="subtitle"></span>
+        <button id="btnLogout" class="btn" type="button" hidden>Logout</button>
+        <button id="btnAddRow" class="btn primary" type="button">Add Row</button>
+        <button id="btnReset" class="btn" type="button">Reset</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Expense Input</h2>
+      <div class="table-wrap" role="region" aria-label="Expense Input Table" tabindex="0">
+        <table class="table" aria-describedby="expenseHelp">
+          <thead>
+            <tr>
+              <th style="width: 52px;">#</th>
+              <th>Object of Expenditures</th>
+              <th>Province</th>
+              <th>Budget Code</th>
+              <th class="num" style="width: 160px;">Proposed Amount</th>
+              <th class="num" style="width: 160px;">Expense Amount</th>
+              <th style="width: 110px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="expenseTbody"></tbody>
+        </table>
+      </div>
+      <p id="expenseHelp" class="help">
+        Object of Expenditures, Provinces, and Budget Codes are dropdowns. Amounts must be 0 or higher.
+      </p>
+      <div id="errorBox" class="error" hidden></div>
+    </section>
+
+    <section class="card">
+      <h2>Budget Summary</h2>
+      <div class="table-wrap">
+        <table class="table budget-summary-table">
+          <thead>
+            <tr>
+              <th>Object of Expenditures</th>
+              <th>Budget Code</th>
+            </tr>
+          </thead>
+          <tbody id="budgetSummaryTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span class="muted">Data is stored in Supabase (PostgreSQL). This page requires login.</span>
+    </footer>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

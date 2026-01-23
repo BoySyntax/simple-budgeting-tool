@@ -1,0 +1,921 @@
+import { createClient } from "@supabase/supabase-js";
+
+  const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL || "https://kjqllxvfdmndawoettoi.supabase.co";
+  const SUPABASE_ANON_KEY = import.meta.env?.VITE_SUPABASE_ANON_KEY || "sb_publishable_L6a3FA_sxA0pRYouRPHN6A_zZ_26T0o";
+
+  let currentUser = null;
+
+  function isAbortError(err) {
+    const name = err?.name;
+    const message = String(err?.message || "");
+    return name === "AbortError" || message.includes("signal is aborted") || message.includes("aborted");
+  }
+
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function createTimeoutError(timeoutMessage) {
+    const err = new Error(timeoutMessage || "Request timed out");
+    err.name = "TimeoutError";
+    return err;
+  }
+
+  async function withAbortableTimeout(fn, ms, timeoutMessage) {
+    // Prefer AbortSignal.timeout when available (newer Chromium/Firefox), else fall back.
+    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+      try {
+        return await fn(AbortSignal.timeout(ms));
+      } catch (err) {
+        // Some environments throw AbortError on timeout; normalize to TimeoutError for consistent UX.
+        if (isAbortError(err)) throw createTimeoutError(timeoutMessage);
+        throw err;
+      }
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fn(controller.signal);
+    } catch (err) {
+      if (isAbortError(err)) throw createTimeoutError(timeoutMessage);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function loadBudgetMasterFromDb() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("budget_master")
+        .select("object_of_expenditure, province, budget_code, allocated_amount")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      budgetMaster = (data || []).map((row) => ({
+        objectOfExpenditure: row.object_of_expenditure,
+        province: row.province,
+        budgetCode: row.budget_code,
+        allocatedAmount: Number(row.allocated_amount) || 0,
+      }));
+    } catch (err) {
+      if (isAbortError(err)) return;
+      setError(String(err?.message || err));
+    }
+  }
+
+  window.addEventListener("unhandledrejection", (event) => {
+    if (isAbortError(event?.reason)) {
+      event.preventDefault();
+    }
+  });
+
+  function isLocalhost() {
+    return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  }
+
+  function getLoginPath() {
+    return "/";
+  }
+
+  function getAppPath() {
+    return isLocalhost() ? "/app.html" : "/app";
+  }
+
+  const provinces = [
+    "Regional Office",
+    "Bukidnon",
+    "Camiguin", 
+    "Lanao del Norte",
+    "Misamis Occidental",
+    "Misamis Oriental",
+  ];
+
+  const expenseTypes = ["Travelling", "Training", "Office Supplies", "Gasoline/Oil"];
+
+  const budgetCodes = [
+    "A.I.a - General Administration and Support",
+    "A.III.c.1- Processing and Archiving of Civil Registry Documents", 
+    "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents"
+  ];
+
+  const objectOfExpenditures = [
+    "Travelling Expenses",
+    "Travelling Expense - Foreign", 
+    "Training Expenses",
+    "Office Supplies Expenses",
+    "Gasoline, Oil and Lubricants Expense",
+    "Survey Expense",
+    "Other Supplies Expenses",
+    "Water Consumption",
+    "Electric Consumption",
+    "Postage and Deliveries",
+    "Telephone Expenses - Mobile",
+    "Telephone Expenses - Landline",
+    "Internet Expenses",
+    "Extraordinary and Miscellaneous Expenses",
+    "Auditing Expenses",
+    "Janitorial Services",
+    "Security Services",
+    "Other General Services",
+    "RM - Office Equipment",
+    "RM - ICT Equipment",
+    "RM - Transportation Equip - Motor Vehicle",
+    "RM - Other Transportation Equipment",
+    "RM - Furnitures and Fixtures",
+    "RM - Leased Assets Improvements",
+    "Fidelity Bond Premium",
+    "Insurance Expense - Vehicle/OE",
+    "Advertising Expenses",
+    "Printing and Publication Expenses",
+    "Representation Expenses",
+    "Transportation and Delivery Expenses",
+    "Rents -Building and Structures",
+    "Rents -Motor Vehicles",
+    "Rents -Equipments",
+    "Rents -Living Quarters",
+    "Operating Lease",
+    "Financial Lease",
+    "Subscription Expenses",
+    "Other Maintenance and Operating Expenses",
+  ];
+
+  let budgetMaster = [];
+
+  const el = {
+    expenseTbody: document.getElementById("expenseTbody"),
+    budgetSummaryTbody: document.getElementById("budgetSummaryTbody"),
+    loginEmail: document.getElementById("loginEmail"),
+    loginPassword: document.getElementById("loginPassword"),
+    btnLogin: document.getElementById("btnLogin"),
+    btnGoogle: document.getElementById("btnGoogle"),
+    btnLogout: document.getElementById("btnLogout"),
+    authStatus: document.getElementById("authStatus"),
+    btnAddRow: document.getElementById("btnAddRow"),
+    btnReset: document.getElementById("btnReset"),
+    errorBox: document.getElementById("errorBox"),
+  };
+
+  const isLoginPage = Boolean(el.btnLogin || el.btnGoogle);
+
+  function money(n) {
+    const num = Number(n) || 0;
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function getOAuthRedirectTo() {
+    if (window.location.protocol === "file:") {
+      return null;
+    }
+    return new URL(getAppPath(), window.location.origin).toString();
+  }
+
+  async function loadExpensesFromDb() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("id, object_of_expenditure, province, budget_code, proposed_amount, expense_amount")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      const expenses = (data || []).map((row) =>
+        normalizeExpense({
+          id: row.id,
+          objectOfExpenditure: row.object_of_expenditure,
+          province: row.province,
+          budgetCode: row.budget_code,
+          proposedAmount: row.proposed_amount,
+          expenseAmount: row.expense_amount,
+        })
+      );
+
+      state = { expenses: expenses.length ? expenses : [defaultExpenseRow()] };
+      render();
+    } catch (err) {
+      if (isAbortError(err)) return;
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function upsertExpenseToDb(exp) {
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return false;
+    }
+
+    if (!currentUser) {
+      setError("Not signed in.");
+      return false;
+    }
+
+    const payload = {
+      id: exp.id,
+      object_of_expenditure: exp.objectOfExpenditure || "",
+      province: exp.province || "",
+      budget_code: exp.budgetCode || "",
+      proposed_amount: Number(exp.proposedAmount) || 0,
+      expense_amount: Number(exp.expenseAmount) || 0,
+    };
+
+    try {
+      // 12s is often too aggressive on cold starts / slow networks. Use a longer, abortable timeout
+      // and a small retry for transient network hiccups.
+      const timeoutMs = 30000;
+      const timeoutMsg =
+        "Save timed out. Open DevTools > Network and check if the /rest/v1/expenses request is failing or blocked.";
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const { error } = await withAbortableTimeout(
+            (signal) => supabase.from("expenses").upsert(payload, { onConflict: "id", signal }),
+            timeoutMs,
+            timeoutMsg
+          );
+
+          if (error) {
+            setError(error.message);
+            return false;
+          }
+          return true;
+        } catch (err) {
+          const msg = String(err?.message || err);
+          const isTimeout = err?.name === "TimeoutError" || /timed out/i.test(msg);
+          const isNetworkLike =
+            isTimeout ||
+            /Failed to fetch/i.test(msg) ||
+            /NetworkError/i.test(msg) ||
+            /Load failed/i.test(msg) ||
+            /ERR_/i.test(msg);
+
+          console.error("Save failed", { attempt, err });
+          if (attempt < 2 && isNetworkLike) {
+            await sleep(500);
+            continue;
+          }
+          setError(msg);
+          return false;
+        }
+      }
+      return false;
+    } catch (err) {
+      if (isAbortError(err)) return false;
+      setError(String(err?.message || err));
+      return false;
+    }
+  }
+
+  async function deleteExpenseFromDb(id) {
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return false;
+    }
+
+    if (!currentUser) {
+      setError("Not signed in.");
+      return false;
+    }
+
+    try {
+      const { error } = await supabase.from("expenses").delete().eq("id", id);
+      if (error) {
+        setError(error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      if (isAbortError(err)) return false;
+      setError(String(err?.message || err));
+      return false;
+    }
+  }
+
+  function uid() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  function defaultExpenseRow() {
+    return {
+      id: uid(),
+      objectOfExpenditure: "",
+      province: "",
+      budgetCode: "",
+      proposedAmount: 0,
+      expenseAmount: 0,
+    };
+  }
+
+  const supabase = (() => {
+    if (window.location.protocol === "file:") return null;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+    if (SUPABASE_URL.includes("PASTE_") || SUPABASE_ANON_KEY.includes("PASTE_")) return null;
+
+    // Add a defensive global fetch timeout (covers all requests, not just save),
+    // while still allowing per-call AbortSignals (we merge them).
+    const DEFAULT_FETCH_TIMEOUT_MS = 45000;
+    const fetchWithTimeout = async (url, options = {}) => {
+      const originalSignal = options.signal;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), DEFAULT_FETCH_TIMEOUT_MS);
+
+      const onAbort = () => controller.abort();
+      try {
+        if (originalSignal) {
+          if (originalSignal.aborted) controller.abort();
+          else originalSignal.addEventListener("abort", onAbort, { once: true });
+        }
+        return await fetch(url, { ...options, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+        if (originalSignal) originalSignal.removeEventListener("abort", onAbort);
+      }
+    };
+
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } });
+  })();
+
+  function normalizeExpense(e) {
+    const legacyAmount = Number.isFinite(Number(e?.amount)) ? Number(e.amount) : null;
+    const normalizedExpenseAmount = Number.isFinite(Number(e?.expenseAmount))
+      ? Number(e.expenseAmount)
+      : (legacyAmount ?? 0);
+
+    return {
+      id: typeof e?.id === "string" ? e.id : uid(),
+      objectOfExpenditure: objectOfExpenditures.includes(e?.objectOfExpenditure)
+        ? e.objectOfExpenditure
+        : "",
+      province: provinces.includes(e?.province) ? e.province : "",
+      budgetCode: budgetCodes.includes(e?.budgetCode) ? e.budgetCode : "",
+      proposedAmount: Number.isFinite(Number(e?.proposedAmount)) ? Number(e.proposedAmount) : 0,
+      expenseAmount: normalizedExpenseAmount,
+    };
+  }
+
+  let state = { expenses: [defaultExpenseRow()] };
+
+  function setAuthUI({ signedIn, email }) {
+    if (el.btnLogout) el.btnLogout.hidden = !signedIn;
+    if (el.authStatus) el.authStatus.textContent = signedIn ? `Signed in: ${email || ""}` : "";
+    if (el.btnAddRow) el.btnAddRow.disabled = !signedIn;
+    if (el.btnReset) el.btnReset.disabled = !signedIn;
+  }
+
+  function setError(msg) {
+    if (!el.errorBox) return;
+    if (!msg) {
+      el.errorBox.hidden = true;
+      el.errorBox.textContent = "";
+      return;
+    }
+    el.errorBox.hidden = false;
+    el.errorBox.textContent = msg;
+  }
+
+  function createOption(text) {
+    const opt = document.createElement("option");
+    opt.value = text;
+    opt.textContent = text;
+    return opt;
+  }
+
+  function createSelect(options, value, onChange, placeholder = "") {
+    const select = document.createElement("select");
+    
+    // Add placeholder as first option if provided
+    if (placeholder) {
+      const placeholderOption = document.createElement("option");
+      placeholderOption.value = "";
+      placeholderOption.textContent = placeholder;
+      placeholderOption.disabled = true;
+      placeholderOption.selected = !value;
+      select.appendChild(placeholderOption);
+    }
+    
+    for (const o of options) {
+      const opt = document.createElement("option");
+      opt.value = o;
+      opt.textContent = o;
+      select.appendChild(opt);
+    }
+    
+    // Set the actual value if it exists
+    if (value) {
+      select.value = value;
+    }
+    
+    select.addEventListener("change", () => onChange(select.value, select));
+    return select;
+  }
+
+  function createInput({ type = "text", value = "", onInput, className = "input", step } = {}) {
+    const input = document.createElement("input");
+    input.type = type;
+    input.value = value;
+    input.className = className;
+    if (step != null) input.step = String(step);
+    input.addEventListener("input", () => onInput(input.value, input));
+    return input;
+  }
+
+  function validateExpense(e) {
+    if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditures is required.";
+    if (!provinces.includes(e.province)) return "Province is required.";
+    if (!budgetCodes.includes(e.budgetCode)) return "Budget Code is required.";
+    if (!Number.isFinite(Number(e.proposedAmount))) return "Proposed Amount must be a number.";
+    if (Number(e.proposedAmount) < 0) return "Proposed Amount cannot be negative.";
+    if (!String(e.budgetCode || "").startsWith("A.I.a")) {
+      if (!Number.isFinite(Number(e.expenseAmount))) return "Expense Amount must be a number.";
+      if (Number(e.expenseAmount) < 0) return "Expense Amount cannot be negative.";
+    }
+    return null;
+  }
+
+  function renderExpenses() {
+    if (!el.expenseTbody) return;
+    el.expenseTbody.innerHTML = "";
+
+    state.expenses.forEach((exp, i) => {
+      const tr = document.createElement("tr");
+
+      const tdIndex = document.createElement("td");
+      tdIndex.textContent = String(i + 1);
+
+      const tdObject = document.createElement("td");
+      const objectSelect = createSelect(objectOfExpenditures, exp.objectOfExpenditure, (val) => {
+        exp.objectOfExpenditure = val;
+        void upsertExpenseToDb(exp);
+        renderSummaries();
+        setError(null);
+      }, "Object of Expenditures");
+      tdObject.appendChild(objectSelect);
+
+      const tdProvince = document.createElement("td");
+      const provinceSelect = createSelect(provinces, exp.province, (val) => {
+        exp.province = val;
+        void upsertExpenseToDb(exp);
+        renderSummaries();
+        setError(null);
+      }, "Province");
+      tdProvince.appendChild(provinceSelect);
+
+      const tdBudget = document.createElement("td");
+      let proposedInput;
+      let expenseAmountInput;
+      const budgetSelect = createSelect(budgetCodes, exp.budgetCode, (val) => {
+        exp.budgetCode = val;
+
+        const isAia = String(exp.budgetCode || "").startsWith("A.I.a");
+        if (expenseAmountInput) {
+          expenseAmountInput.disabled = isAia;
+          expenseAmountInput.readOnly = isAia;
+          if (isAia) {
+            exp.expenseAmount = 0;
+            expenseAmountInput.value = "0";
+          }
+        }
+
+        void upsertExpenseToDb(exp);
+        renderSummaries();
+        setError(null);
+      }, "Budget Code");
+      tdBudget.appendChild(budgetSelect);
+
+      const tdProposed = document.createElement("td");
+      tdProposed.className = "num";
+      proposedInput = createInput({
+        type: "number",
+        value: String(exp.proposedAmount ?? 0),
+        step: 0.01,
+        onInput: (val, inputEl) => {
+          const num = Number(val);
+          exp.proposedAmount = Number.isFinite(num) ? num : 0;
+
+          if (Number.isNaN(num) || num < 0) {
+            inputEl.classList.add("invalid");
+            setError("Amount must be 0 or higher");
+          } else {
+            inputEl.classList.remove("invalid");
+            setError(null);
+          }
+
+          void upsertExpenseToDb(exp);
+          renderSummaries();
+        },
+      });
+      proposedInput.classList.toggle("invalid", Number(exp.proposedAmount) < 0);
+      tdProposed.appendChild(proposedInput);
+
+      const tdExpenseAmount = document.createElement("td");
+      tdExpenseAmount.className = "num";
+      expenseAmountInput = createInput({
+        type: "number",
+        value: String(exp.expenseAmount ?? 0),
+        step: 0.01,
+        onInput: (val, inputEl) => {
+          const num = Number(val);
+          exp.expenseAmount = Number.isFinite(num) ? num : 0;
+
+          const err = validateExpense(exp);
+          if (err) {
+            inputEl.classList.add("invalid");
+            setError(err);
+          } else {
+            inputEl.classList.remove("invalid");
+            setError(null);
+          }
+
+          void upsertExpenseToDb(exp);
+          renderSummaries();
+        },
+      });
+      expenseAmountInput.classList.toggle("invalid", Number(exp.expenseAmount) < 0);
+      const isAiaInitial = String(exp.budgetCode || "").startsWith("A.I.a");
+      expenseAmountInput.disabled = isAiaInitial;
+      expenseAmountInput.readOnly = isAiaInitial;
+      tdExpenseAmount.appendChild(expenseAmountInput);
+
+      const tdAction = document.createElement("td");
+      tdAction.style.display = "inline-flex";
+      tdAction.style.gap = "8px";
+      tdAction.style.alignItems = "center";
+
+      const btnDelete = document.createElement("button");
+      btnDelete.type = "button";
+      btnDelete.className = "btn danger";
+      btnDelete.textContent = "Delete";
+      btnDelete.addEventListener("click", async () => {
+        if (btnDelete.disabled) return;
+        const originalText = btnDelete.textContent;
+        btnDelete.disabled = true;
+        btnDelete.textContent = "Deleting...";
+        btnSave.disabled = true;
+        const ok = await deleteExpenseFromDb(exp.id);
+        if (ok) {
+          state.expenses = state.expenses.filter((x) => x.id !== exp.id);
+          if (state.expenses.length === 0) state.expenses = [defaultExpenseRow()];
+          render();
+          return;
+        }
+        btnDelete.disabled = false;
+        btnDelete.textContent = originalText;
+        btnSave.disabled = false;
+      });
+      tdAction.appendChild(btnDelete);
+
+      const btnSave = document.createElement("button");
+      btnSave.type = "button";
+      btnSave.className = "btn primary";
+      btnSave.textContent = "Save";
+      btnSave.addEventListener("click", async () => {
+        if (btnSave.disabled) return;
+        const err = validateExpense(exp);
+        if (err) {
+          setError(err);
+          return;
+        }
+        const originalText = btnSave.textContent;
+        btnSave.disabled = true;
+        btnSave.textContent = "Saving...";
+        setError(null);
+
+        let finished = false;
+        const restore = () => {
+          if (finished) return;
+          finished = true;
+          btnSave.textContent = originalText;
+          btnSave.disabled = false;
+        };
+
+        const uiTimeoutMs = 32000;
+        const safety = setTimeout(() => {
+          setError("Save timed out. Open DevTools > Network and check if the /rest/v1/expenses request is failing or blocked.");
+          restore();
+        }, uiTimeoutMs);
+        try {
+          const ok = await upsertExpenseToDb(exp);
+          if (!ok) return;
+          btnSave.textContent = "Saved";
+          setTimeout(restore, 700);
+        } finally {
+          clearTimeout(safety);
+          if (!finished && btnSave.textContent !== "Saved") restore();
+        }
+      });
+      tdAction.appendChild(btnSave);
+
+      tr.appendChild(tdIndex);
+      tr.appendChild(tdObject);
+      tr.appendChild(tdProvince);
+      tr.appendChild(tdBudget);
+      tr.appendChild(tdProposed);
+      tr.appendChild(tdExpenseAmount);
+      tr.appendChild(tdAction);
+
+      el.expenseTbody.appendChild(tr);
+    });
+  }
+
+  function calculate() {
+    const spentByBudgetCode = new Map();
+    const allocatedByBudgetCode = new Map();
+    const allocatedByDetail = new Map();
+    const spentByDetail = new Map();
+
+    for (const bc of budgetCodes) {
+      spentByBudgetCode.set(bc, 0);
+      allocatedByBudgetCode.set(bc, 0);
+    }
+
+    // Calculate allocations by detail and by budget code
+    for (const bm of budgetMaster) {
+      const key = `${bm.objectOfExpenditure}|${bm.province}|${bm.budgetCode}`;
+      allocatedByDetail.set(key, Number(bm.allocatedAmount) || 0);
+      allocatedByBudgetCode.set(
+        bm.budgetCode,
+        (allocatedByBudgetCode.get(bm.budgetCode) || 0) + Number(bm.allocatedAmount || 0)
+      );
+    }
+
+    // Calculate spent amounts by detail
+    for (const exp of state.expenses) {
+      const proposed = Number(exp.proposedAmount) || 0;
+      const expense = Number(exp.expenseAmount) || 0;
+      const isAia = String(exp.budgetCode || "").startsWith("A.I.a");
+      const amt = isAia ? proposed : (expense > 0 ? expense : proposed);
+
+      spentByBudgetCode.set(exp.budgetCode, (spentByBudgetCode.get(exp.budgetCode) || 0) + amt);
+
+      const key = `${exp.objectOfExpenditure}|${exp.province}|${exp.budgetCode}`;
+      spentByDetail.set(key, (spentByDetail.get(key) || 0) + amt);
+    }
+
+    return {
+      spentByBudgetCode,
+      allocatedByBudgetCode,
+      allocatedByDetail,
+      spentByDetail,
+    };
+  }
+
+  function renderBudgetSummary({ allocatedByDetail, spentByDetail }) {
+    if (!el.budgetSummaryTbody) return;
+    el.budgetSummaryTbody.innerHTML = "";
+    
+    const usedCategories = new Set(
+      state.expenses
+        .map((e) => e?.objectOfExpenditure)
+        .filter((x) => typeof x === "string" && x.trim().length > 0)
+    );
+
+    const budgetSummarySection = el.budgetSummaryTbody.closest("section");
+    if (budgetSummarySection) {
+      budgetSummarySection.style.display = usedCategories.size === 0 ? "none" : "";
+    }
+
+    if (usedCategories.size === 0) return;
+
+    // Only show categories that have at least one expense row, to avoid a huge empty table.
+    for (const category of objectOfExpenditures) {
+      if (!usedCategories.has(category)) continue;
+      const detailRow = document.createElement("tr");
+      detailRow.className = "detail-row";
+      
+      const tdObject = document.createElement("td");
+      tdObject.textContent = category;
+      
+      const tdBudget = document.createElement("td");
+      const budgetSelect = document.createElement("select");
+      budgetSelect.className = "input";
+      
+      // Add placeholder option first
+      const placeholderOption = document.createElement("option");
+      placeholderOption.value = "";
+      placeholderOption.textContent = "Budget Code";
+      placeholderOption.disabled = true;
+      placeholderOption.selected = true;
+      budgetSelect.appendChild(placeholderOption);
+      
+      // Add budget code options
+      for (const bc of budgetCodes) {
+        const option = document.createElement("option");
+        option.value = bc;
+        option.textContent = bc;
+        budgetSelect.appendChild(option);
+      }
+      
+      const openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.className = "btn";
+      openButton.textContent = "Open";
+      openButton.style.padding = "4px 8px";
+      openButton.style.fontSize = "12px";
+      
+      openButton.addEventListener("click", () => {
+        const selectedBudget = budgetSelect.value;
+        if (!selectedBudget) {
+          // Show error if no budget code selected
+          setError("Please select a budget code first");
+          return;
+        }
+        const categoryParam = encodeURIComponent(category);
+        const budgetParam = encodeURIComponent(selectedBudget);
+        window.location.href = `budget.html?category=${categoryParam}&budget=${budgetParam}`;
+      });
+      
+      tdBudget.appendChild(budgetSelect);
+      tdBudget.appendChild(openButton);
+      
+      detailRow.appendChild(tdObject);
+      detailRow.appendChild(tdBudget);
+      
+      el.budgetSummaryTbody.appendChild(detailRow);
+    }
+  }
+
+  function renderSummaries() {
+    if (!el.budgetSummaryTbody) return;
+    const { allocatedByDetail, spentByDetail } = calculate();
+    renderBudgetSummary({ allocatedByDetail, spentByDetail });
+  }
+
+  function render() {
+    if (!el.expenseTbody && !el.budgetSummaryTbody) return;
+    renderExpenses();
+    renderSummaries();
+  }
+
+  if (el.btnAddRow) {
+    el.btnAddRow.addEventListener("click", () => {
+      const row = defaultExpenseRow();
+      state.expenses.push(row);
+      void upsertExpenseToDb(row);
+      render();
+    });
+  }
+
+  if (el.btnReset) {
+    el.btnReset.addEventListener("click", () => {
+      state = { expenses: [defaultExpenseRow()] };
+      setError("Reset only clears the current view. To clear all data in Supabase, delete rows from the 'expenses' table.");
+      setError(null);
+      render();
+    });
+  }
+
+  async function initAuth() {
+    if (!supabase) {
+      setAuthUI({ signedIn: false, email: "" });
+      setError("Supabase is not configured. Paste your SUPABASE_URL and SUPABASE_ANON_KEY in app.js.");
+      return;
+    }
+
+    let session;
+    try {
+      const { data } = await supabase.auth.getSession();
+      session = data?.session;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      setError(String(err?.message || err));
+      return;
+    }
+    if (session?.user) {
+      currentUser = session.user;
+      setAuthUI({ signedIn: true, email: session.user.email });
+      if (isLoginPage) {
+        window.location.replace(getAppPath());
+        return;
+      }
+      await loadBudgetMasterFromDb();
+      await loadExpensesFromDb();
+    } else {
+      currentUser = null;
+      setAuthUI({ signedIn: false, email: "" });
+      if (!isLoginPage) {
+        window.location.replace(getLoginPath());
+        return;
+      }
+      render();
+    }
+
+    supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      try {
+        if (newSession?.user) {
+          currentUser = newSession.user;
+          setAuthUI({ signedIn: true, email: newSession.user.email });
+          if (isLoginPage) {
+            window.location.replace(getAppPath());
+            return;
+          }
+          await loadBudgetMasterFromDb();
+          await loadExpensesFromDb();
+        } else {
+          currentUser = null;
+          setAuthUI({ signedIn: false, email: "" });
+          if (!isLoginPage) {
+            window.location.replace(getLoginPath());
+            return;
+          }
+          state = { expenses: [defaultExpenseRow()] };
+          render();
+        }
+      } catch (err) {
+        if (isAbortError(err)) return;
+        setError(String(err?.message || err));
+      }
+    });
+  }
+
+  if (el.btnLogin) {
+    el.btnLogin.addEventListener("click", async () => {
+      if (!supabase) {
+        setError("Supabase is not configured.");
+        return;
+      }
+      const email = (el.loginEmail?.value || "").trim();
+      const password = el.loginPassword?.value || "";
+      if (!email || !password) {
+        setError("Email and password are required.");
+        return;
+      }
+      try {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) setError(error.message);
+        else setError(null);
+      } catch (err) {
+        if (isAbortError(err)) return;
+        setError(String(err?.message || err));
+      }
+    });
+
+    const triggerLoginOnEnter = (event) => {
+      if (event?.key !== "Enter") return;
+      event.preventDefault();
+      el.btnLogin?.click();
+    };
+
+    if (el.loginEmail) el.loginEmail.addEventListener("keydown", triggerLoginOnEnter);
+    if (el.loginPassword) el.loginPassword.addEventListener("keydown", triggerLoginOnEnter);
+  }
+
+  if (el.btnGoogle) {
+    el.btnGoogle.addEventListener("click", async () => {
+      if (!supabase) {
+        setError("Supabase is not configured.");
+        return;
+      }
+
+      const redirectTo = getOAuthRedirectTo();
+      if (!redirectTo) {
+        setError("Google login requires running the app from http://localhost (not file://). Start a local web server, then try again.");
+        return;
+      }
+
+      try {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo },
+        });
+        if (error) setError(error.message);
+        else setError(null);
+      } catch (err) {
+        if (isAbortError(err)) return;
+        setError(String(err?.message || err));
+      }
+    });
+  }
+
+  if (el.btnLogout) {
+    el.btnLogout.addEventListener("click", async () => {
+      if (!supabase) return;
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error) setError(error.message);
+        else {
+          setAuthUI({ signedIn: false, email: "" });
+          state = { expenses: [defaultExpenseRow()] };
+          window.location.replace(getLoginPath());
+        }
+      } catch (err) {
+        if (isAbortError(err)) return;
+        setError(String(err?.message || err));
+      }
+    });
+  }
+
+  initAuth();

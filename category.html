@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Category Details - Simple Budgeting Tool</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1 id="categoryTitle">Category Details</h1>
+        <p class="subtitle">Detailed budget and expense breakdown for this category</p>
+      </div>
+      <div class="header-actions">
+        <button id="btnBack" class="btn" type="button">← Back to Summary</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Budget Overview</h2>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Province</th>
+              <th>Budget Code</th>
+              <th class="num">Allocated</th>
+              <th class="num">Spent</th>
+              <th class="num">Remaining</th>
+              <th class="num">Status</th>
+            </tr>
+          </thead>
+          <tbody id="categoryOverviewTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Related Expenses</h2>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 52px;">#</th>
+              <th>Province</th>
+              <th>Budget Code</th>
+              <th class="num" style="width: 160px;">Proposed Amount</th>
+              <th class="num" style="width: 160px;">Expense Amount</th>
+            </tr>
+          </thead>
+          <tbody id="categoryExpensesTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span class="muted">Local-only page. Data is stored in your browser (localStorage) on this computer.</span>
+    </footer>
+  </div>
+
+  <script src="./category.js"></script>
+</body>
+</html>
