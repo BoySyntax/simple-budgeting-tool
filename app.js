@@ -1169,13 +1169,32 @@ import { createClient } from "@supabase/supabase-js";
     el.btnLogout.addEventListener("click", async () => {
       if (!supabase) return;
       try {
-        const { error } = await supabase.auth.signOut();
-        if (error) setError(error.message);
-        else {
-          setAuthUI({ signedIn: false, email: "" });
-          state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
-          window.location.replace(getLoginPath());
+        let error = null;
+        try {
+          ({ error } = await supabase.auth.signOut({ scope: "global" }));
+        } catch (err) {
+          error = err;
         }
+
+        const errorMessage = error?.message || "";
+        const looksForbidden = /403|forbidden/i.test(errorMessage);
+        if (error && looksForbidden) {
+          try {
+            await supabase.auth.signOut({ scope: "local" });
+            error = null;
+          } catch (err) {
+            // keep original error
+          }
+        }
+
+        if (error) setError(errorMessage || String(error));
+        else setError(null);
+
+        // Always clear UI + state locally so the user can continue.
+        currentUser = null;
+        setAuthUI({ signedIn: false, email: "" });
+        state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
+        window.location.replace(getLoginPath());
       } catch (err) {
         if (isAbortError(err)) return;
         setError(String(err?.message || err));
