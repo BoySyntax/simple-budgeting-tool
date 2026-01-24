@@ -11,6 +11,110 @@ import { createClient } from "@supabase/supabase-js";
     return name === "AbortError" || message.includes("signal is aborted") || message.includes("aborted");
   }
 
+  async function upsertBudgetInputToDb(row) {
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return false;
+    }
+
+    if (!currentUser) {
+      setError("Not signed in.");
+      return false;
+    }
+
+    const payload = {
+      object_of_expenditure: row.objectOfExpenditure || "",
+      province: row.province || "",
+      budget_code: row.budgetCode || "",
+      proposed_amount: Number(row.proposedAmount) || 0,
+    };
+
+    try {
+      const timeoutMs = 30000;
+      const timeoutMsg =
+        "Save timed out. Open DevTools > Network and check if the /rest/v1/budget_inputs request is failing or blocked.";
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const { data, error } = await withAbortableTimeout(
+            (signal) =>
+              supabase
+                .from("budget_inputs")
+                .upsert(payload, { onConflict: "object_of_expenditure,province,budget_code", signal })
+                .select("id")
+                .single(),
+            timeoutMs,
+            timeoutMsg
+          );
+
+          if (error) {
+            setError(error.message);
+            return false;
+          }
+          if (data?.id) row.id = data.id;
+          return true;
+        } catch (err) {
+          const msg = String(err?.message || err);
+          const isTimeout = err?.name === "TimeoutError" || /timed out/i.test(msg);
+          const isNetworkLike =
+            isTimeout ||
+            /Failed to fetch/i.test(msg) ||
+            /NetworkError/i.test(msg) ||
+            /Load failed/i.test(msg) ||
+            /ERR_/i.test(msg);
+
+          console.error("Save failed", { attempt, err });
+          if (attempt < 2 && isNetworkLike) {
+            await sleep(500);
+            continue;
+          }
+          setError(msg);
+          return false;
+        }
+      }
+      return false;
+    } catch (err) {
+      if (isAbortError(err)) return false;
+      setError(String(err?.message || err));
+      return false;
+    }
+  }
+
+  async function deleteBudgetInputFromDb(row) {
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return false;
+    }
+
+    if (!currentUser) {
+      setError("Not signed in.");
+      return false;
+    }
+
+    try {
+      let query = supabase.from("budget_inputs").delete();
+      if (row?.objectOfExpenditure && row?.province && row?.budgetCode) {
+        query = query
+          .eq("object_of_expenditure", row.objectOfExpenditure)
+          .eq("province", row.province)
+          .eq("budget_code", row.budgetCode);
+      } else {
+        query = query.eq("id", row?.id);
+      }
+
+      const { error } = await query;
+      if (error) {
+        setError(error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      if (isAbortError(err)) return false;
+      setError(String(err?.message || err));
+      return false;
+    }
+  }
+
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
@@ -149,6 +253,7 @@ import { createClient } from "@supabase/supabase-js";
   let budgetMaster = [];
 
   const el = {
+    budgetInputTbody: document.getElementById("budgetInputTbody"),
     expenseTbody: document.getElementById("expenseTbody"),
     budgetSummaryTbody: document.getElementById("budgetSummaryTbody"),
     loginEmail: document.getElementById("loginEmail"),
@@ -157,6 +262,7 @@ import { createClient } from "@supabase/supabase-js";
     btnGoogle: document.getElementById("btnGoogle"),
     btnLogout: document.getElementById("btnLogout"),
     authStatus: document.getElementById("authStatus"),
+    btnAddBudgetRow: document.getElementById("btnAddBudgetRow"),
     btnAddRow: document.getElementById("btnAddRow"),
     btnReset: document.getElementById("btnReset"),
     errorBox: document.getElementById("errorBox"),
@@ -181,7 +287,7 @@ import { createClient } from "@supabase/supabase-js";
     try {
       const { data, error } = await supabase
         .from("expenses")
-        .select("id, object_of_expenditure, province, budget_code, proposed_amount, expense_amount")
+        .select("id, object_of_expenditure, province, budget_code, expense_amount")
         .order("created_at", { ascending: true });
 
       if (error) {
@@ -195,12 +301,48 @@ import { createClient } from "@supabase/supabase-js";
           objectOfExpenditure: row.object_of_expenditure,
           province: row.province,
           budgetCode: row.budget_code,
-          proposedAmount: row.proposed_amount,
           expenseAmount: row.expense_amount,
         })
       );
 
-      state = { expenses: expenses.length ? expenses : [defaultExpenseRow()] };
+      state = {
+        ...state,
+        expenses: expenses.length ? expenses : [defaultExpenseRow()],
+      };
+      render();
+    } catch (err) {
+      if (isAbortError(err)) return;
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function loadBudgetInputsFromDb() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("budget_inputs")
+        .select("id, object_of_expenditure, province, budget_code, proposed_amount")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      const rows = (data || []).map((row) =>
+        normalizeBudgetInput({
+          id: row.id,
+          objectOfExpenditure: row.object_of_expenditure,
+          province: row.province,
+          budgetCode: row.budget_code,
+          proposedAmount: row.proposed_amount,
+        })
+      );
+
+      state = {
+        ...state,
+        budgetInputs: rows.length ? rows : [defaultBudgetInputRow()],
+      };
       render();
     } catch (err) {
       if (isAbortError(err)) return;
@@ -224,7 +366,6 @@ import { createClient } from "@supabase/supabase-js";
       object_of_expenditure: exp.objectOfExpenditure || "",
       province: exp.province || "",
       budget_code: exp.budgetCode || "",
-      proposed_amount: Number(exp.proposedAmount) || 0,
       expense_amount: Number(exp.expenseAmount) || 0,
     };
 
@@ -315,8 +456,17 @@ import { createClient } from "@supabase/supabase-js";
       objectOfExpenditure: "",
       province: "",
       budgetCode: "",
-      proposedAmount: 0,
       expenseAmount: 0,
+    };
+  }
+
+  function defaultBudgetInputRow() {
+    return {
+      id: uid(),
+      objectOfExpenditure: "",
+      province: "",
+      budgetCode: "",
+      proposedAmount: 0,
     };
   }
 
@@ -362,12 +512,23 @@ import { createClient } from "@supabase/supabase-js";
         : "",
       province: provinces.includes(e?.province) ? e.province : "",
       budgetCode: budgetCodes.includes(e?.budgetCode) ? e.budgetCode : "",
-      proposedAmount: Number.isFinite(Number(e?.proposedAmount)) ? Number(e.proposedAmount) : 0,
       expenseAmount: normalizedExpenseAmount,
     };
   }
 
-  let state = { expenses: [defaultExpenseRow()] };
+  function normalizeBudgetInput(e) {
+    return {
+      id: typeof e?.id === "string" ? e.id : uid(),
+      objectOfExpenditure: objectOfExpenditures.includes(e?.objectOfExpenditure)
+        ? e.objectOfExpenditure
+        : "",
+      province: provinces.includes(e?.province) ? e.province : "",
+      budgetCode: budgetCodes.includes(e?.budgetCode) ? e.budgetCode : "",
+      proposedAmount: Number.isFinite(Number(e?.proposedAmount)) ? Number(e.proposedAmount) : 0,
+    };
+  }
+
+  let state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
 
   function setAuthUI({ signedIn, email }) {
     if (el.btnLogout) el.btnLogout.hidden = !signedIn;
@@ -437,13 +598,163 @@ import { createClient } from "@supabase/supabase-js";
     if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditures is required.";
     if (!provinces.includes(e.province)) return "Province is required.";
     if (!budgetCodes.includes(e.budgetCode)) return "Budget Code is required.";
+    if (!Number.isFinite(Number(e.expenseAmount))) return "Expense Amount must be a number.";
+    if (Number(e.expenseAmount) < 0) return "Expense Amount cannot be negative.";
+    return null;
+  }
+
+  function validateBudgetInputRow(e) {
+    if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditures is required.";
+    if (!provinces.includes(e.province)) return "Province is required.";
+    if (!budgetCodes.includes(e.budgetCode)) return "Budget Code is required.";
     if (!Number.isFinite(Number(e.proposedAmount))) return "Proposed Amount must be a number.";
     if (Number(e.proposedAmount) < 0) return "Proposed Amount cannot be negative.";
-    if (!String(e.budgetCode || "").startsWith("A.I.a")) {
-      if (!Number.isFinite(Number(e.expenseAmount))) return "Expense Amount must be a number.";
-      if (Number(e.expenseAmount) < 0) return "Expense Amount cannot be negative.";
-    }
     return null;
+  }
+
+  function renderBudgetInputs() {
+    if (!el.budgetInputTbody) return;
+    el.budgetInputTbody.innerHTML = "";
+
+    state.budgetInputs.forEach((row, i) => {
+      const tr = document.createElement("tr");
+
+      const tdIndex = document.createElement("td");
+      tdIndex.textContent = String(i + 1);
+
+      const tdObject = document.createElement("td");
+      const objectSelect = createSelect(objectOfExpenditures, row.objectOfExpenditure, (val) => {
+        row.objectOfExpenditure = val;
+        void upsertBudgetInputToDb(row);
+        renderSummaries();
+        setError(null);
+      }, "Object of Expenditures");
+      tdObject.appendChild(objectSelect);
+
+      const tdProvince = document.createElement("td");
+      const provinceSelect = createSelect(provinces, row.province, (val) => {
+        row.province = val;
+        void upsertBudgetInputToDb(row);
+        renderSummaries();
+        setError(null);
+      }, "Province");
+      tdProvince.appendChild(provinceSelect);
+
+      const tdBudget = document.createElement("td");
+      const budgetSelect = createSelect(budgetCodes, row.budgetCode, (val) => {
+        row.budgetCode = val;
+        void upsertBudgetInputToDb(row);
+        renderSummaries();
+        setError(null);
+      }, "Budget Code");
+      tdBudget.appendChild(budgetSelect);
+
+      const tdProposed = document.createElement("td");
+      tdProposed.className = "num";
+      const proposedInput = createInput({
+        type: "number",
+        value: String(row.proposedAmount ?? 0),
+        step: 0.01,
+        onInput: (val, inputEl) => {
+          const num = Number(val);
+          row.proposedAmount = Number.isFinite(num) ? num : 0;
+
+          const err = validateBudgetInputRow(row);
+          if (err) {
+            inputEl.classList.add("invalid");
+            setError(err);
+          } else {
+            inputEl.classList.remove("invalid");
+            setError(null);
+          }
+
+          void upsertBudgetInputToDb(row);
+          renderSummaries();
+        },
+      });
+      proposedInput.classList.toggle("invalid", Number(row.proposedAmount) < 0);
+      tdProposed.appendChild(proposedInput);
+
+      const tdAction = document.createElement("td");
+      tdAction.style.display = "inline-flex";
+      tdAction.style.gap = "8px";
+      tdAction.style.alignItems = "center";
+
+      const btnDelete = document.createElement("button");
+      btnDelete.type = "button";
+      btnDelete.className = "btn danger";
+      btnDelete.textContent = "Delete";
+      btnDelete.addEventListener("click", async () => {
+        if (btnDelete.disabled) return;
+        const originalText = btnDelete.textContent;
+        btnDelete.disabled = true;
+        btnDelete.textContent = "Deleting...";
+        btnSave.disabled = true;
+        const ok = await deleteBudgetInputFromDb(row);
+        if (ok) {
+          state.budgetInputs = state.budgetInputs.filter((x) => x.id !== row.id);
+          if (state.budgetInputs.length === 0) state.budgetInputs = [defaultBudgetInputRow()];
+          render();
+          return;
+        }
+        btnDelete.disabled = false;
+        btnDelete.textContent = originalText;
+        btnSave.disabled = false;
+      });
+      tdAction.appendChild(btnDelete);
+
+      const btnSave = document.createElement("button");
+      btnSave.type = "button";
+      btnSave.className = "btn primary";
+      btnSave.textContent = "Save";
+      btnSave.addEventListener("click", async () => {
+        if (btnSave.disabled) return;
+        const err = validateBudgetInputRow(row);
+        if (err) {
+          setError(err);
+          return;
+        }
+        const originalText = btnSave.textContent;
+        btnSave.disabled = true;
+        btnSave.textContent = "Saving...";
+        setError(null);
+
+        let finished = false;
+        const restore = () => {
+          if (finished) return;
+          finished = true;
+          btnSave.textContent = originalText;
+          btnSave.disabled = false;
+        };
+
+        const uiTimeoutMs = 32000;
+        const safety = setTimeout(() => {
+          setError(
+            "Save timed out. Open DevTools > Network and check if the /rest/v1/budget_inputs request is failing or blocked."
+          );
+          restore();
+        }, uiTimeoutMs);
+        try {
+          const ok = await upsertBudgetInputToDb(row);
+          if (!ok) return;
+          btnSave.textContent = "Saved";
+          setTimeout(restore, 700);
+        } finally {
+          clearTimeout(safety);
+          if (!finished && btnSave.textContent !== "Saved") restore();
+        }
+      });
+      tdAction.appendChild(btnSave);
+
+      tr.appendChild(tdIndex);
+      tr.appendChild(tdObject);
+      tr.appendChild(tdProvince);
+      tr.appendChild(tdBudget);
+      tr.appendChild(tdProposed);
+      tr.appendChild(tdAction);
+
+      el.budgetInputTbody.appendChild(tr);
+    });
   }
 
   function renderExpenses() {
@@ -475,51 +786,15 @@ import { createClient } from "@supabase/supabase-js";
       tdProvince.appendChild(provinceSelect);
 
       const tdBudget = document.createElement("td");
-      let proposedInput;
       let expenseAmountInput;
       const budgetSelect = createSelect(budgetCodes, exp.budgetCode, (val) => {
         exp.budgetCode = val;
-
-        const isAia = String(exp.budgetCode || "").startsWith("A.I.a");
-        if (expenseAmountInput) {
-          expenseAmountInput.disabled = isAia;
-          expenseAmountInput.readOnly = isAia;
-          if (isAia) {
-            exp.expenseAmount = 0;
-            expenseAmountInput.value = "0";
-          }
-        }
 
         void upsertExpenseToDb(exp);
         renderSummaries();
         setError(null);
       }, "Budget Code");
       tdBudget.appendChild(budgetSelect);
-
-      const tdProposed = document.createElement("td");
-      tdProposed.className = "num";
-      proposedInput = createInput({
-        type: "number",
-        value: String(exp.proposedAmount ?? 0),
-        step: 0.01,
-        onInput: (val, inputEl) => {
-          const num = Number(val);
-          exp.proposedAmount = Number.isFinite(num) ? num : 0;
-
-          if (Number.isNaN(num) || num < 0) {
-            inputEl.classList.add("invalid");
-            setError("Amount must be 0 or higher");
-          } else {
-            inputEl.classList.remove("invalid");
-            setError(null);
-          }
-
-          void upsertExpenseToDb(exp);
-          renderSummaries();
-        },
-      });
-      proposedInput.classList.toggle("invalid", Number(exp.proposedAmount) < 0);
-      tdProposed.appendChild(proposedInput);
 
       const tdExpenseAmount = document.createElement("td");
       tdExpenseAmount.className = "num";
@@ -545,9 +820,6 @@ import { createClient } from "@supabase/supabase-js";
         },
       });
       expenseAmountInput.classList.toggle("invalid", Number(exp.expenseAmount) < 0);
-      const isAiaInitial = String(exp.budgetCode || "").startsWith("A.I.a");
-      expenseAmountInput.disabled = isAiaInitial;
-      expenseAmountInput.readOnly = isAiaInitial;
       tdExpenseAmount.appendChild(expenseAmountInput);
 
       const tdAction = document.createElement("td");
@@ -623,7 +895,6 @@ import { createClient } from "@supabase/supabase-js";
       tr.appendChild(tdObject);
       tr.appendChild(tdProvince);
       tr.appendChild(tdBudget);
-      tr.appendChild(tdProposed);
       tr.appendChild(tdExpenseAmount);
       tr.appendChild(tdAction);
 
@@ -642,22 +913,18 @@ import { createClient } from "@supabase/supabase-js";
       allocatedByBudgetCode.set(bc, 0);
     }
 
-    // Calculate allocations by detail and by budget code
-    for (const bm of budgetMaster) {
-      const key = `${bm.objectOfExpenditure}|${bm.province}|${bm.budgetCode}`;
-      allocatedByDetail.set(key, Number(bm.allocatedAmount) || 0);
+    for (const bi of state.budgetInputs || []) {
+      const key = `${bi.objectOfExpenditure}|${bi.province}|${bi.budgetCode}`;
+      allocatedByDetail.set(key, Number(bi.proposedAmount) || 0);
       allocatedByBudgetCode.set(
-        bm.budgetCode,
-        (allocatedByBudgetCode.get(bm.budgetCode) || 0) + Number(bm.allocatedAmount || 0)
+        bi.budgetCode,
+        (allocatedByBudgetCode.get(bi.budgetCode) || 0) + Number(bi.proposedAmount || 0)
       );
     }
 
-    // Calculate spent amounts by detail
     for (const exp of state.expenses) {
-      const proposed = Number(exp.proposedAmount) || 0;
       const expense = Number(exp.expenseAmount) || 0;
-      const isAia = String(exp.budgetCode || "").startsWith("A.I.a");
-      const amt = isAia ? proposed : (expense > 0 ? expense : proposed);
+      const amt = expense;
 
       spentByBudgetCode.set(exp.budgetCode, (spentByBudgetCode.get(exp.budgetCode) || 0) + amt);
 
@@ -740,9 +1007,19 @@ import { createClient } from "@supabase/supabase-js";
   }
 
   function render() {
-    if (!el.expenseTbody && !el.budgetSummaryTbody) return;
+    if (!el.expenseTbody && !el.budgetInputTbody && !el.budgetSummaryTbody) return;
+    renderBudgetInputs();
     renderExpenses();
     renderSummaries();
+  }
+
+  if (el.btnAddBudgetRow) {
+    el.btnAddBudgetRow.addEventListener("click", () => {
+      const row = defaultBudgetInputRow();
+      state.budgetInputs.push(row);
+      void upsertBudgetInputToDb(row);
+      render();
+    });
   }
 
   if (el.btnAddRow) {
@@ -756,7 +1033,7 @@ import { createClient } from "@supabase/supabase-js";
 
   if (el.btnReset) {
     el.btnReset.addEventListener("click", () => {
-      state = { expenses: [defaultExpenseRow()] };
+      state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
       setError("Reset only clears the current view. To clear all data in Supabase, delete rows from the 'expenses' table.");
       setError(null);
       render();
@@ -787,6 +1064,7 @@ import { createClient } from "@supabase/supabase-js";
         return;
       }
       await loadBudgetMasterFromDb();
+      await loadBudgetInputsFromDb();
       await loadExpensesFromDb();
     } else {
       currentUser = null;
@@ -795,6 +1073,7 @@ import { createClient } from "@supabase/supabase-js";
         window.location.replace(getLoginPath());
         return;
       }
+      state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
       render();
     }
 
@@ -808,6 +1087,7 @@ import { createClient } from "@supabase/supabase-js";
             return;
           }
           await loadBudgetMasterFromDb();
+          await loadBudgetInputsFromDb();
           await loadExpensesFromDb();
         } else {
           currentUser = null;
@@ -816,7 +1096,7 @@ import { createClient } from "@supabase/supabase-js";
             window.location.replace(getLoginPath());
             return;
           }
-          state = { expenses: [defaultExpenseRow()] };
+          state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
           render();
         }
       } catch (err) {
@@ -893,7 +1173,7 @@ import { createClient } from "@supabase/supabase-js";
         if (error) setError(error.message);
         else {
           setAuthUI({ signedIn: false, email: "" });
-          state = { expenses: [defaultExpenseRow()] };
+          state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
           window.location.replace(getLoginPath());
         }
       } catch (err) {

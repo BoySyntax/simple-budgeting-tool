@@ -16,13 +16,40 @@
       <div class="header-actions">
         <span id="authStatus" class="subtitle"></span>
         <button id="btnLogout" class="btn" type="button" hidden>Logout</button>
-        <button id="btnAddRow" class="btn primary" type="button">Add Row</button>
         <button id="btnReset" class="btn" type="button">Reset</button>
       </div>
     </header>
 
     <section class="card">
+      <h2>Budget Input</h2>
+      <div class="header-actions" style="justify-content: flex-end; margin: 10px 0 0;">
+        <button id="btnAddBudgetRow" class="btn primary" type="button">Add Budget Row</button>
+      </div>
+      <div class="table-wrap" role="region" aria-label="Budget Input Table" tabindex="0">
+        <table class="table" aria-describedby="budgetHelp">
+          <thead>
+            <tr>
+              <th style="width: 52px;">#</th>
+              <th>Object of Expenditures</th>
+              <th>Province</th>
+              <th>Budget Code</th>
+              <th class="num" style="width: 160px;">Proposed Amount</th>
+              <th style="width: 110px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="budgetInputTbody"></tbody>
+        </table>
+      </div>
+      <p id="budgetHelp" class="help">
+        This table is the proposed/allocated budget input. Amounts must be 0 or higher.
+      </p>
+    </section>
+
+    <section class="card">
       <h2>Expense Input</h2>
+      <div class="header-actions" style="justify-content: flex-end; margin: 10px 0 0;">
+        <button id="btnAddRow" class="btn primary" type="button">Add Expense Row</button>
+      </div>
       <div class="table-wrap" role="region" aria-label="Expense Input Table" tabindex="0">
         <table class="table" aria-describedby="expenseHelp">
           <thead>
@@ -31,7 +58,6 @@
               <th>Object of Expenditures</th>
               <th>Province</th>
               <th>Budget Code</th>
-              <th class="num" style="width: 160px;">Proposed Amount</th>
               <th class="num" style="width: 160px;">Expense Amount</th>
               <th style="width: 110px;">Action</th>
             </tr>

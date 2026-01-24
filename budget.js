@@ -52,7 +52,23 @@ import { createClient } from "@supabase/supabase-js";
     if (!supabase) return [];
     const { data, error } = await supabase
       .from("expenses")
-      .select("id, object_of_expenditure, province, budget_code, proposed_amount, expense_amount")
+      .select("id, object_of_expenditure, province, budget_code, expense_amount")
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map((row) => ({
+      objectOfExpenditure: row.object_of_expenditure,
+      province: row.province,
+      budgetCode: row.budget_code,
+      expenseAmount: Number(row.expense_amount) || 0,
+    }));
+  }
+
+  async function loadBudgetInputsFromDb() {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from("budget_inputs")
+      .select("id, object_of_expenditure, province, budget_code, proposed_amount")
       .order("created_at", { ascending: true });
 
     if (error) throw error;
@@ -61,27 +77,27 @@ import { createClient } from "@supabase/supabase-js";
       province: row.province,
       budgetCode: row.budget_code,
       proposedAmount: Number(row.proposed_amount) || 0,
-      expenseAmount: Number(row.expense_amount) || 0,
     }));
   }
 
   function computeSpent(exp) {
-    const proposed = Number(exp.proposedAmount) || 0;
     const expense = Number(exp.expenseAmount) || 0;
-    const isAia = String(exp.budgetCode || "").startsWith("A.I.a");
-    return isAia ? proposed : (expense > 0 ? expense : proposed);
+    return expense;
   }
 
-  function renderBudgetOverview({ budgetCode, category, expenses }) {
+  function renderBudgetOverview({ budgetCode, category, expenses, budgetInputs }) {
     el.budgetOverviewTbody.innerHTML = "";
 
     for (const province of provinces) {
-      const matched = expenses.filter(
+      const matchedExpenses = expenses.filter(
         (e) => e.objectOfExpenditure === category && e.budgetCode === budgetCode && e.province === province
       );
+      const matchedBudgets = budgetInputs.filter(
+        (b) => b.objectOfExpenditure === category && b.budgetCode === budgetCode && b.province === province
+      );
 
-      const allocated = matched.reduce((sum, e) => sum + (Number(e.proposedAmount) || 0), 0);
-      const spent = matched.reduce((sum, e) => sum + computeSpent(e), 0);
+      const allocated = matchedBudgets.reduce((sum, b) => sum + (Number(b.proposedAmount) || 0), 0);
+      const spent = matchedExpenses.reduce((sum, e) => sum + computeSpent(e), 0);
       const remaining = allocated - spent;
 
       let status = "Within Budget";
@@ -132,7 +148,8 @@ import { createClient } from "@supabase/supabase-js";
     el.budgetTitle.textContent = `Budget Overview - ${category} - ${budgetCode}`;
 
     const expenses = await loadExpensesFromDb();
-    renderBudgetOverview({ budgetCode, category, expenses });
+    const budgetInputs = await loadBudgetInputsFromDb();
+    renderBudgetOverview({ budgetCode, category, expenses, budgetInputs });
 
     el.btnBack.addEventListener("click", () => {
       window.location.replace(getAppPath());

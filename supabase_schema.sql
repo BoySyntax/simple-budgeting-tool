@@ -13,6 +13,16 @@ create table if not exists public.expenses (
   expense_amount numeric not null default 0
 );
 
+create table if not exists public.budget_inputs (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  object_of_expenditure text not null default '',
+  province text not null default '',
+  budget_code text not null default '',
+  proposed_amount numeric not null default 0,
+  constraint budget_inputs_unique unique (object_of_expenditure, province, budget_code)
+);
+
 create table if not exists public.budget_master (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -24,6 +34,8 @@ create table if not exists public.budget_master (
 );
 
 alter table public.expenses enable row level security;
+
+alter table public.budget_inputs enable row level security;
 
 alter table public.budget_master enable row level security;
 
@@ -56,6 +68,35 @@ with check (true);
 drop policy if exists "expenses_delete_authenticated" on public.expenses;
 create policy "expenses_delete_authenticated"
 on public.expenses
+for delete
+to authenticated
+using (true);
+
+drop policy if exists "budget_inputs_select_authenticated" on public.budget_inputs;
+create policy "budget_inputs_select_authenticated"
+on public.budget_inputs
+for select
+to authenticated
+using (true);
+
+drop policy if exists "budget_inputs_insert_authenticated" on public.budget_inputs;
+create policy "budget_inputs_insert_authenticated"
+on public.budget_inputs
+for insert
+to authenticated
+with check (true);
+
+drop policy if exists "budget_inputs_update_authenticated" on public.budget_inputs;
+create policy "budget_inputs_update_authenticated"
+on public.budget_inputs
+for update
+to authenticated
+using (true)
+with check (true);
+
+drop policy if exists "budget_inputs_delete_authenticated" on public.budget_inputs;
+create policy "budget_inputs_delete_authenticated"
+on public.budget_inputs
 for delete
 to authenticated
 using (true);

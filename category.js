@@ -1,10 +1,9 @@
-(() => {
-  const STORAGE_KEY = "simpleBudgetingTool:v1";
+import { createClient } from "@supabase/supabase-js";
 
   const provinces = [
     "Regional Office",
     "Bukidnon",
-    "Camiguin", 
+    "Camiguin",
     "Lanao del Norte",
     "Misamis Occidental",
     "Misamis Oriental",
@@ -57,25 +56,25 @@
     "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents"
   ];
 
-  const budgetMaster = [
-    // Camiguin - A.I.a (General Administration and Support)
-    { province: "Camiguin", budgetCode: "A.I.a - General Administration and Support", objectOfExpenditure: "Travelling Expenses", allocatedAmount: 15000 },
-    { province: "Camiguin", budgetCode: "A.I.a - General Administration and Support", objectOfExpenditure: "Training Expenses", allocatedAmount: 20000 },
-    { province: "Camiguin", budgetCode: "A.I.a - General Administration and Support", objectOfExpenditure: "Office Supplies Expenses", allocatedAmount: 12000 },
-    { province: "Camiguin", budgetCode: "A.I.a - General Administration and Support", objectOfExpenditure: "Gasoline, Oil and Lubricants Expense", allocatedAmount: 10000 },
-    
-    // Camiguin - A.III.c.1 (Processing and Archiving)
-    { province: "Camiguin", budgetCode: "A.III.c.1- Processing and Archiving of Civil Registry Documents", objectOfExpenditure: "Travelling Expenses", allocatedAmount: 8000 },
-    { province: "Camiguin", budgetCode: "A.III.c.1- Processing and Archiving of Civil Registry Documents", objectOfExpenditure: "Training Expenses", allocatedAmount: 15000 },
-    { province: "Camiguin", budgetCode: "A.III.c.1- Processing and Archiving of Civil Registry Documents", objectOfExpenditure: "Office Supplies Expenses", allocatedAmount: 18000 },
-    { province: "Camiguin", budgetCode: "A.III.c.1- Processing and Archiving of Civil Registry Documents", objectOfExpenditure: "Gasoline, Oil and Lubricants Expense", allocatedAmount: 15000 },
-    
-    // Camiguin - A.III.c.2 (Issuance of Certifications)
-    { province: "Camiguin", budgetCode: "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents", objectOfExpenditure: "Travelling Expenses", allocatedAmount: 5000 },
-    { province: "Camiguin", budgetCode: "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents", objectOfExpenditure: "Training Expenses", allocatedAmount: 10000 },
-    { province: "Camiguin", budgetCode: "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents", objectOfExpenditure: "Office Supplies Expenses", allocatedAmount: 8000 },
-    { province: "Camiguin", budgetCode: "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents", objectOfExpenditure: "Gasoline, Oil and Lubricants Expense", allocatedAmount: 6000 },
-  ];
+  const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL || "https://kjqllxvfdmndawoettoi.supabase.co";
+  const SUPABASE_ANON_KEY = import.meta.env?.VITE_SUPABASE_ANON_KEY || "sb_publishable_L6a3FA_sxA0pRYouRPHN6A_zZ_26T0o";
+
+  const supabase = (() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  })();
+
+  function isLocalhost() {
+    return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  }
+
+  function getLoginPath() {
+    return "/";
+  }
+
+  function getAppPath() {
+    return isLocalhost() ? "/app.html" : "/app";
+  }
 
   const el = {
     categoryTitle: document.getElementById("categoryTitle"),
@@ -89,33 +88,73 @@
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { expenses: [] };
-      const parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.expenses)) return { expenses: [] };
-      return { expenses: parsed.expenses };
-    } catch {
-      return { expenses: [] };
-    }
-  }
-
   function getCategoryFromURL() {
     const params = new URLSearchParams(window.location.search);
-    return params.get('category');
+    return params.get("category");
   }
 
-  function renderCategoryOverview(category, allocatedByDetail, spentByDetail) {
+  async function loadExpensesFromDb() {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("id, object_of_expenditure, province, budget_code, expense_amount")
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map((row) => ({
+      objectOfExpenditure: row.object_of_expenditure,
+      province: row.province,
+      budgetCode: row.budget_code,
+      expenseAmount: Number(row.expense_amount) || 0,
+    }));
+  }
+
+  async function loadBudgetInputsFromDb() {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from("budget_inputs")
+      .select("id, object_of_expenditure, province, budget_code, proposed_amount")
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map((row) => ({
+      objectOfExpenditure: row.object_of_expenditure,
+      province: row.province,
+      budgetCode: row.budget_code,
+      proposedAmount: Number(row.proposed_amount) || 0,
+    }));
+  }
+
+  function renderCategoryOverview(category, budgetInputs, expenses) {
     el.categoryOverviewTbody.innerHTML = "";
-    
-    // Get all budget master items for this category
-    const categoryBudgets = budgetMaster.filter(bm => bm.objectOfExpenditure === category);
-    
-    for (const bm of categoryBudgets) {
-      const key = `${bm.objectOfExpenditure}|${bm.province}|${bm.budgetCode}`;
-      const allocated = allocatedByDetail.get(key) || 0;
-      const spent = spentByDetail.get(key) || 0;
+
+    const categoryBudgets = budgetInputs.filter((b) => b.objectOfExpenditure === category);
+    const keys = new Map();
+
+    for (const b of categoryBudgets) {
+      const k = `${b.province}|${b.budgetCode}`;
+      keys.set(k, { province: b.province, budgetCode: b.budgetCode });
+    }
+    for (const e of expenses.filter((x) => x.objectOfExpenditure === category)) {
+      const k = `${e.province}|${e.budgetCode}`;
+      keys.set(k, { province: e.province, budgetCode: e.budgetCode });
+    }
+
+    const rows = Array.from(keys.values()).sort((a, b) => {
+      const p = String(a.province).localeCompare(String(b.province));
+      if (p !== 0) return p;
+      return String(a.budgetCode).localeCompare(String(b.budgetCode));
+    });
+
+    for (const r of rows) {
+      const allocated = categoryBudgets
+        .filter((b) => b.province === r.province && b.budgetCode === r.budgetCode)
+        .reduce((sum, b) => sum + (Number(b.proposedAmount) || 0), 0);
+
+      const spent = expenses
+        .filter((e) => e.objectOfExpenditure === category && e.province === r.province && e.budgetCode === r.budgetCode)
+        .reduce((sum, e) => sum + (Number(e.expenseAmount) || 0), 0);
+
       const remaining = allocated - spent;
       
       let status = "Within Budget";
@@ -131,8 +170,8 @@
       
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${bm.province}</td>
-        <td>${bm.budgetCode}</td>
+        <td>${r.province}</td>
+        <td>${r.budgetCode}</td>
         <td class="num">${money(allocated)}</td>
         <td class="num">${money(spent)}</td>
         <td class="num">${money(remaining)}</td>
@@ -154,56 +193,40 @@
         <td>${idx + 1}</td>
         <td>${exp.province}</td>
         <td>${exp.budgetCode}</td>
-        <td class="num">${money(exp.proposedAmount || 0)}</td>
         <td class="num">${money(exp.expenseAmount || 0)}</td>
       `;
       el.categoryExpensesTbody.appendChild(tr);
     });
   }
 
-  function calculate() {
-    const allocatedByDetail = new Map();
-    const spentByDetail = new Map();
-
-    // Calculate allocations by detail
-    for (const bm of budgetMaster) {
-      const key = `${bm.objectOfExpenditure}|${bm.province}|${bm.budgetCode}`;
-      allocatedByDetail.set(key, Number(bm.allocatedAmount) || 0);
-    }
-
-    // Calculate spent amounts by detail
-    const state = loadState();
-    for (const exp of state.expenses) {
-      const proposed = Number(exp.proposedAmount) || 0;
-      const expense = Number(exp.expenseAmount) || 0;
-      const amt = exp.budgetCode === "A.I.a" ? proposed : (expense > 0 ? expense : proposed);
-
-      const key = `${exp.objectOfExpenditure}|${exp.province}|${exp.budgetCode}`;
-      spentByDetail.set(key, (spentByDetail.get(key) || 0) + amt);
-    }
-
-    return { allocatedByDetail, spentByDetail };
-  }
-
-  function init() {
+  async function init() {
     const category = getCategoryFromURL();
     if (!category) {
-      window.location.href = 'index.html';
+      window.location.replace(getAppPath());
+      return;
+    }
+
+    if (!supabase) {
+      window.location.replace(getLoginPath());
+      return;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    const session = data?.session;
+    if (!session?.user) {
+      window.location.replace(getLoginPath());
       return;
     }
 
     el.categoryTitle.textContent = `${category} - Category Details`;
-    
-    const { allocatedByDetail, spentByDetail } = calculate();
-    const state = loadState();
-    
-    renderCategoryOverview(category, allocatedByDetail, spentByDetail);
-    renderCategoryExpenses(category, state.expenses);
+
+    const [expenses, budgetInputs] = await Promise.all([loadExpensesFromDb(), loadBudgetInputsFromDb()]);
+    renderCategoryOverview(category, budgetInputs, expenses);
+    renderCategoryExpenses(category, expenses);
 
     el.btnBack.addEventListener("click", () => {
-      window.location.href = 'index.html';
+      window.location.replace(getAppPath());
     });
   }
 
   init();
-})();
