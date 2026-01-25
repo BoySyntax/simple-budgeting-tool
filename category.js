@@ -53,7 +53,22 @@ import { createClient } from "@supabase/supabase-js";
   const budgetCodes = [
     "A.I.a - General Administration and Support",
     "A.III.c.1- Processing and Archiving of Civil Registry Documents", 
-    "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents"
+    "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents",
+    "A.lll.a.1 Conduct of Censuses and Surveys on the Agriculture, Fisheries, Industry and Services Sector",
+    "A.lll.a.2 Conduct of Household-Based Censuses and Surveys",
+    "A.III.b.1 Statistical Planning , Programming, Budgetting, Monitoring and Evaluation",
+    "A.III.b.2 Development and Improvement of Statistical Framework and Standards",
+    "A.lll.b.3 Coordination of Statistical Activities at the National and local Levels",
+    "CPBI",
+    "ASPBI",
+    "APIS",
+    "NMS",
+    "PEENRA",
+    "FIES",
+    "NDHS",
+    "CBMS",
+    "STEP",
+    "OWS-ISLE"
   ];
 
   const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL || "https://kjqllxvfdmndawoettoi.supabase.co";

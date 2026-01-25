@@ -19,8 +19,8 @@
     </header>
 
     <section class="card">
-      <h2>Budget Input</h2>
-      <div class="header-actions" style="justify-content: flex-end; margin: 10px 0 0;">
+      <div class="header-actions" style="justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0;">Budget Input</h2>
         <button id="btnAddBudgetRow" class="btn add-row" type="button">Add Budget Row</button>
       </div>
       <div class="table-wrap" role="region" aria-label="Budget Input Table" tabindex="0">
@@ -44,8 +44,8 @@
     </section>
 
     <section class="card">
-      <h2>Expense Input</h2>
-      <div class="header-actions" style="justify-content: flex-end; margin: 10px 0 0;">
+      <div class="header-actions" style="justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0;">Expense Input</h2>
         <button id="btnAddRow" class="btn add-row" type="button">Add Expense Row</button>
       </div>
       <div class="table-wrap" role="region" aria-label="Expense Input Table" tabindex="0">
@@ -70,6 +70,9 @@
 
     <section class="card">
       <h2>Budget Summary</h2>
+      <div class="header-actions" style="justify-content: flex-start; margin: 0 0 10px;">
+        <input id="budgetSummarySearch" class="input" type="text" placeholder="Search (type to filter)" style="width: fit-content; max-width: 260px;" />
+      </div>
       <div class="table-wrap">
         <table class="table budget-summary-table">
           <thead>

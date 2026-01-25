@@ -206,7 +206,22 @@ import { createClient } from "@supabase/supabase-js";
   const budgetCodes = [
     "A.I.a - General Administration and Support",
     "A.III.c.1- Processing and Archiving of Civil Registry Documents", 
-    "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents"
+    "A.III.c.2- Issuance of Civil Registration Certifications / Authentications of Documents",
+    "A.lll.a.1 Conduct of Censuses and Surveys on the Agriculture, Fisheries, Industry and Services Sector",
+    "A.lll.a.2 Conduct of Household-Based Censuses and Surveys",
+    "A.III.b.1 Statistical Planning , Programming, Budgetting, Monitoring and Evaluation",
+    "A.III.b.2 Development and Improvement of Statistical Framework and Standards",
+    "A.lll.b.3 Coordination of Statistical Activities at the National and local Levels",
+    "CPBI",
+    "ASPBI",
+    "APIS",
+    "NMS",
+    "PEENRA",
+    "FIES",
+    "NDHS",
+    "CBMS",
+    "STEP",
+    "OWS-ISLE"
   ];
 
   const objectOfExpenditures = [
@@ -256,6 +271,7 @@ import { createClient } from "@supabase/supabase-js";
     budgetInputTbody: document.getElementById("budgetInputTbody"),
     expenseTbody: document.getElementById("expenseTbody"),
     budgetSummaryTbody: document.getElementById("budgetSummaryTbody"),
+    budgetSummarySearch: document.getElementById("budgetSummarySearch"),
     loginEmail: document.getElementById("loginEmail"),
     loginPassword: document.getElementById("loginPassword"),
     btnLogin: document.getElementById("btnLogin"),
@@ -534,7 +550,32 @@ import { createClient } from "@supabase/supabase-js";
     };
   }
 
-  let state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
+  let state = {
+    expenses: [defaultExpenseRow()],
+    budgetInputs: [defaultBudgetInputRow()],
+    budgetSummarySearch: "",
+  };
+
+  function matchesSmart(text, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    const t = String(text || "").toLowerCase();
+    if (t.includes(q)) return true;
+
+    const words = t.split(/[^a-z0-9]+/i).filter(Boolean);
+    if (words.length) {
+      const initials = words.map((w) => w[0]).join("");
+      if (initials.startsWith(q)) return true;
+      // Also allow prefix matching by word starts in order
+      let qi = 0;
+      for (const w of words) {
+        if (qi >= q.length) break;
+        if (w.startsWith(q[qi])) qi += 1;
+      }
+      if (qi >= q.length) return true;
+    }
+    return false;
+  }
 
   function setAuthUI({ signedIn, email }) {
     if (el.btnLogout) el.btnLogout.hidden = !signedIn;
@@ -986,8 +1027,11 @@ import { createClient } from "@supabase/supabase-js";
   function renderBudgetSummary({ allocatedByDetail, spentByDetail }) {
     if (!el.budgetSummaryTbody) return;
     el.budgetSummaryTbody.innerHTML = "";
-  
+
+    const q = String(state?.budgetSummarySearch || "");
+
     for (const category of objectOfExpenditures) {
+      if (!matchesSmart(category, q)) continue;
       const detailRow = document.createElement("tr");
       detailRow.className = "detail-row";
       
@@ -1054,6 +1098,13 @@ import { createClient } from "@supabase/supabase-js";
     renderBudgetInputs();
     renderExpenses();
     renderSummaries();
+  }
+
+  if (el.budgetSummarySearch) {
+    el.budgetSummarySearch.addEventListener("input", (e) => {
+      state.budgetSummarySearch = String(e?.target?.value || "");
+      renderSummaries();
+    });
   }
 
   if (el.btnAddBudgetRow) {
