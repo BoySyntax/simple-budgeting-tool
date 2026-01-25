@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Simple Budgeting Tool</title>
+  <title>Budget Allocation System</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="container">
     <header class="header">
       <div>
-        <h1>Simple Budgeting Tool</h1>
+        <h1>Budget Allocation System</h1>
       </div>
       <div class="header-actions">
         <span id="authStatus" class="subtitle"></span>
@@ -28,10 +28,10 @@
           <thead>
             <tr>
               <th style="width: 52px;">#</th>
-              <th>Object of Expenditures</th>
+              <th>Object of Expenditure</th>
               <th>Province</th>
               <th>Budget Code</th>
-              <th class="num" style="width: 160px;">Proposed Amount</th>
+              <th class="num" style="width: 160px;">Allocated Budget</th>
               <th style="width: 110px;">Action</th>
             </tr>
           </thead>
@@ -39,7 +39,7 @@
         </table>
       </div>
       <p id="budgetHelp" class="help">
-        This table is the proposed/allocated budget input. Amounts must be 0 or higher.
+        This table is the allocated budget input. Amounts must be 0 or higher.
       </p>
     </section>
 
@@ -53,7 +53,7 @@
           <thead>
             <tr>
               <th style="width: 52px;">#</th>
-              <th>Object of Expenditures</th>
+              <th>Object of Expenditure</th>
               <th>Province</th>
               <th>Budget Code</th>
               <th class="num" style="width: 160px;">Expense Amount</th>
@@ -64,7 +64,7 @@
         </table>
       </div>
       <p id="expenseHelp" class="help">
-        Object of Expenditures, Provinces, and Budget Codes are dropdowns. Amounts must be 0 or higher.
+        Object of Expenditure, Provinces, and Budget Codes are dropdowns. Amounts must be 0 or higher.
       </p>
     </section>
 
@@ -77,7 +77,7 @@
         <table class="table budget-summary-table">
           <thead>
             <tr>
-              <th>Object of Expenditures</th>
+              <th>Object of Expenditure</th>
               <th>Budget Code</th>
             </tr>
           </thead>

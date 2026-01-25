@@ -684,7 +684,7 @@ import { createClient } from "@supabase/supabase-js";
   }
 
   function validateExpense(e) {
-    if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditures is required.";
+    if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditure is required.";
     if (!provinces.includes(e.province)) return "Province is required.";
     if (!budgetCodes.includes(e.budgetCode)) return "Budget Code is required.";
     if (!Number.isFinite(Number(e.expenseAmount))) return "Expense Amount must be a number.";
@@ -693,11 +693,11 @@ import { createClient } from "@supabase/supabase-js";
   }
 
   function validateBudgetInputRow(e) {
-    if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditures is required.";
+    if (!objectOfExpenditures.includes(e.objectOfExpenditure)) return "Object of Expenditure is required.";
     if (!provinces.includes(e.province)) return "Province is required.";
     if (!budgetCodes.includes(e.budgetCode)) return "Budget Code is required.";
-    if (!Number.isFinite(Number(e.proposedAmount))) return "Proposed Amount must be a number.";
-    if (Number(e.proposedAmount) < 0) return "Proposed Amount cannot be negative.";
+    if (!Number.isFinite(Number(e.proposedAmount))) return "Allocated Budget must be a number.";
+    if (Number(e.proposedAmount) < 0) return "Allocated Budget cannot be negative.";
     return null;
   }
 
@@ -717,7 +717,7 @@ import { createClient } from "@supabase/supabase-js";
       const objectSelect = createSelect(objectOfExpenditures, row.objectOfExpenditure, (val) => {
         row.objectOfExpenditure = val;
         setError(null);
-      }, "Object of Expenditures");
+      }, "Object of Expenditure");
       tdObject.appendChild(objectSelect);
 
       const tdProvince = document.createElement("td");
@@ -815,6 +815,21 @@ import { createClient } from "@supabase/supabase-js";
           restore();
         }, uiTimeoutMs);
         try {
+          // Detect duplicate budget (Object of Expenditure + Province + Budget Code)
+          const duplicate = (state.budgetInputs || []).find(
+            (x) =>
+              !x?.isDraft &&
+              x.objectOfExpenditure === row.objectOfExpenditure &&
+              x.province === row.province &&
+              x.budgetCode === row.budgetCode &&
+              x.id !== row.id
+          );
+          if (duplicate) {
+            toast.show("This expenditure and budget code already has an allocated budget.", "error");
+            restore();
+            return;
+          }
+
           const ok = await upsertBudgetInputToDb(row);
           if (!ok) return;
           btnSave.textContent = "Saved";
@@ -859,7 +874,7 @@ import { createClient } from "@supabase/supabase-js";
       const objectSelect = createSelect(objectOfExpenditures, exp.objectOfExpenditure, (val) => {
         exp.objectOfExpenditure = val;
         setError(null);
-      }, "Object of Expenditures");
+      }, "Object of Expenditure");
       tdObject.appendChild(objectSelect);
 
       const tdProvince = document.createElement("td");
