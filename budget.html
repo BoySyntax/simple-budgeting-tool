@@ -36,6 +36,27 @@
       </div>
     </section>
 
+    <section class="card">
+      <div class="header-actions" style="justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0;">Expense Deductions</h2>
+        <select id="expenseDeductionsFilter" class="input" style="width: fit-content; max-width: 240px;">
+          <option value="">All Provinces</option>
+        </select>
+      </div>
+      <div class="table-wrap" role="region" aria-label="Expense Deductions" tabindex="0">
+        <table class="table" aria-describedby="expenseDeductionsHelp">
+          <thead>
+            <tr>
+              <th>Province</th>
+              <th class="num">Expense Amount</th>
+            </tr>
+          </thead>
+          <tbody id="expenseDeductionsTbody"></tbody>
+        </table>
+      </div>
+      <p id="expenseDeductionsHelp" class="help">All recorded expenses deducted for this Object of Expenditure and Budget Code.</p>
+    </section>
+
     <footer class="footer">
       <span class="muted">Data is stored in Supabase (PostgreSQL). This page requires login.</span>
     </footer>

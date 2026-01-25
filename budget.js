@@ -32,6 +32,8 @@ import { createClient } from "@supabase/supabase-js";
   const el = {
     budgetTitle: document.getElementById("budgetTitle"),
     budgetOverviewTbody: document.getElementById("budgetOverviewTbody"),
+    expenseDeductionsTbody: document.getElementById("expenseDeductionsTbody"),
+    expenseDeductionsFilter: document.getElementById("expenseDeductionsFilter"),
     btnBack: document.getElementById("btnBack"),
   };
 
@@ -126,6 +128,57 @@ import { createClient } from "@supabase/supabase-js";
     }
   }
 
+  function renderExpenseDeductions({ budgetCode, category, expenses, provinceFilter }) {
+    if (!el.expenseDeductionsTbody) return;
+    el.expenseDeductionsTbody.innerHTML = "";
+
+    const rows = (expenses || [])
+      .filter((e) => e.objectOfExpenditure === category && e.budgetCode === budgetCode)
+      .filter((e) => (!provinceFilter ? true : e.province === provinceFilter))
+      .filter((e) => Number(e.expenseAmount) > 0)
+      .slice();
+
+    rows.sort((a, b) => {
+      const ka = `${a.province || ""}|${a.expenseAmount || 0}`;
+      const kb = `${b.province || ""}|${b.expenseAmount || 0}`;
+      return ka.localeCompare(kb);
+    });
+
+    if (rows.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 2;
+      td.className = "muted";
+      td.textContent = "No expenses yet.";
+      tr.appendChild(td);
+      el.expenseDeductionsTbody.appendChild(tr);
+      return;
+    }
+
+    let total = 0;
+    for (const e of rows) {
+      const amt = Number(e.expenseAmount) || 0;
+      total += amt;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${e.province || "-"}</td>
+        <td class="num">${money(amt)}</td>
+      `;
+      el.expenseDeductionsTbody.appendChild(tr);
+    }
+
+    if (provinceFilter) {
+      const trTotal = document.createElement("tr");
+      trTotal.className = "detail-row";
+      trTotal.innerHTML = `
+        <td><strong>Total</strong></td>
+        <td class="num"><strong>${money(total)}</strong></td>
+      `;
+      el.expenseDeductionsTbody.appendChild(trTotal);
+    }
+  }
+
   async function init() {
     const { budgetCode, category } = getBudgetFromURL();
     if (!budgetCode || !category) {
@@ -150,6 +203,31 @@ import { createClient } from "@supabase/supabase-js";
     const expenses = await loadExpensesFromDb();
     const budgetInputs = await loadBudgetInputsFromDb();
     renderBudgetOverview({ budgetCode, category, expenses, budgetInputs });
+
+    if (el.expenseDeductionsFilter) {
+      // Populate province filter options (keeps the existing "All Provinces" option).
+      const existingValues = new Set(
+        Array.from(el.expenseDeductionsFilter.options).map((o) => String(o.value))
+      );
+      for (const p of provinces) {
+        if (existingValues.has(p)) continue;
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = p;
+        el.expenseDeductionsFilter.appendChild(opt);
+      }
+    }
+
+    const renderDeductions = () => {
+      const provinceFilter = el.expenseDeductionsFilter?.value || "";
+      renderExpenseDeductions({ budgetCode, category, expenses, provinceFilter });
+    };
+
+    renderDeductions();
+
+    el.expenseDeductionsFilter?.addEventListener("change", () => {
+      renderDeductions();
+    });
 
     el.btnBack.addEventListener("click", () => {
       window.location.replace(getAppPath());

@@ -264,8 +264,6 @@ import { createClient } from "@supabase/supabase-js";
     authStatus: document.getElementById("authStatus"),
     btnAddBudgetRow: document.getElementById("btnAddBudgetRow"),
     btnAddRow: document.getElementById("btnAddRow"),
-    btnReset: document.getElementById("btnReset"),
-    errorBox: document.getElementById("errorBox"),
   };
 
   const isLoginPage = Boolean(el.btnLogin || el.btnGoogle);
@@ -305,9 +303,11 @@ import { createClient } from "@supabase/supabase-js";
         })
       );
 
+      const drafts = (state.expenses || []).filter((r) => r?.isDraft);
+
       state = {
         ...state,
-        expenses: expenses.length ? expenses : [defaultExpenseRow()],
+        expenses: [...expenses, ...(drafts.length ? drafts : [defaultExpenseRow()])],
       };
       render();
     } catch (err) {
@@ -339,9 +339,11 @@ import { createClient } from "@supabase/supabase-js";
         })
       );
 
+      const drafts = (state.budgetInputs || []).filter((r) => r?.isDraft);
+
       state = {
         ...state,
-        budgetInputs: rows.length ? rows : [defaultBudgetInputRow()],
+        budgetInputs: [...rows, ...(drafts.length ? drafts : [defaultBudgetInputRow()])],
       };
       render();
     } catch (err) {
@@ -457,6 +459,7 @@ import { createClient } from "@supabase/supabase-js";
       province: "",
       budgetCode: "",
       expenseAmount: 0,
+      isDraft: true,
     };
   }
 
@@ -467,6 +470,7 @@ import { createClient } from "@supabase/supabase-js";
       province: "",
       budgetCode: "",
       proposedAmount: 0,
+      isDraft: true,
     };
   }
 
@@ -512,7 +516,8 @@ import { createClient } from "@supabase/supabase-js";
         : "",
       province: provinces.includes(e?.province) ? e.province : "",
       budgetCode: budgetCodes.includes(e?.budgetCode) ? e.budgetCode : "",
-      expenseAmount: normalizedExpenseAmount,
+      expenseAmount: Number.isFinite(Number(normalizedExpenseAmount)) ? Number(normalizedExpenseAmount) : 0,
+      isDraft: false,
     };
   }
 
@@ -525,6 +530,7 @@ import { createClient } from "@supabase/supabase-js";
       province: provinces.includes(e?.province) ? e.province : "",
       budgetCode: budgetCodes.includes(e?.budgetCode) ? e.budgetCode : "",
       proposedAmount: Number.isFinite(Number(e?.proposedAmount)) ? Number(e.proposedAmount) : 0,
+      isDraft: false,
     };
   }
 
@@ -534,19 +540,61 @@ import { createClient } from "@supabase/supabase-js";
     if (el.btnLogout) el.btnLogout.hidden = !signedIn;
     if (el.authStatus) el.authStatus.textContent = signedIn ? `Signed in: ${email || ""}` : "";
     if (el.btnAddRow) el.btnAddRow.disabled = !signedIn;
-    if (el.btnReset) el.btnReset.disabled = !signedIn;
   }
 
   function setError(msg) {
-    if (!el.errorBox) return;
-    if (!msg) {
-      el.errorBox.hidden = true;
-      el.errorBox.textContent = "";
-      return;
+    if (!msg) return;
+    let container = document.querySelector(".toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "toast-container";
+      document.body.appendChild(container);
     }
-    el.errorBox.hidden = false;
-    el.errorBox.textContent = msg;
+    const t = document.createElement("div");
+    t.className = "toast error";
+    const icon = document.createElement("span");
+    icon.className = "toast-icon";
+    icon.textContent = "×";
+    const m = document.createElement("span");
+    m.className = "toast-message";
+    m.textContent = String(msg);
+    t.appendChild(icon);
+    t.appendChild(m);
+    container.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
   }
+
+  const toast = (() => {
+    let container;
+    const ensure = () => {
+      if (container) return container;
+      container = document.createElement("div");
+      container.className = "toast-container";
+      document.body.appendChild(container);
+      return container;
+    };
+
+    const show = (message, type = "success") => {
+      const c = ensure();
+      const t = document.createElement("div");
+      t.className = `toast ${type}`;
+
+      const icon = document.createElement("span");
+      icon.className = "toast-icon";
+      icon.textContent = type === "success" ? "✓" : "×";
+
+      const msg = document.createElement("span");
+      msg.className = "toast-message";
+      msg.textContent = message;
+
+      t.appendChild(icon);
+      t.appendChild(msg);
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 2600);
+    };
+
+    return { show };
+  })();
 
   function createOption(text) {
     const opt = document.createElement("option");
@@ -616,7 +664,9 @@ import { createClient } from "@supabase/supabase-js";
     if (!el.budgetInputTbody) return;
     el.budgetInputTbody.innerHTML = "";
 
-    state.budgetInputs.forEach((row, i) => {
+    const draftRows = (state.budgetInputs || []).filter((r) => r?.isDraft);
+
+    draftRows.forEach((row, i) => {
       const tr = document.createElement("tr");
 
       const tdIndex = document.createElement("td");
@@ -625,8 +675,6 @@ import { createClient } from "@supabase/supabase-js";
       const tdObject = document.createElement("td");
       const objectSelect = createSelect(objectOfExpenditures, row.objectOfExpenditure, (val) => {
         row.objectOfExpenditure = val;
-        void upsertBudgetInputToDb(row);
-        renderSummaries();
         setError(null);
       }, "Object of Expenditures");
       tdObject.appendChild(objectSelect);
@@ -634,8 +682,6 @@ import { createClient } from "@supabase/supabase-js";
       const tdProvince = document.createElement("td");
       const provinceSelect = createSelect(provinces, row.province, (val) => {
         row.province = val;
-        void upsertBudgetInputToDb(row);
-        renderSummaries();
         setError(null);
       }, "Province");
       tdProvince.appendChild(provinceSelect);
@@ -643,8 +689,6 @@ import { createClient } from "@supabase/supabase-js";
       const tdBudget = document.createElement("td");
       const budgetSelect = createSelect(budgetCodes, row.budgetCode, (val) => {
         row.budgetCode = val;
-        void upsertBudgetInputToDb(row);
-        renderSummaries();
         setError(null);
       }, "Budget Code");
       tdBudget.appendChild(budgetSelect);
@@ -667,9 +711,6 @@ import { createClient } from "@supabase/supabase-js";
             inputEl.classList.remove("invalid");
             setError(null);
           }
-
-          void upsertBudgetInputToDb(row);
-          renderSummaries();
         },
       });
       proposedInput.classList.toggle("invalid", Number(row.proposedAmount) < 0);
@@ -690,13 +731,11 @@ import { createClient } from "@supabase/supabase-js";
         btnDelete.disabled = true;
         btnDelete.textContent = "Deleting...";
         btnSave.disabled = true;
-        const ok = await deleteBudgetInputFromDb(row);
-        if (ok) {
-          state.budgetInputs = state.budgetInputs.filter((x) => x.id !== row.id);
-          if (state.budgetInputs.length === 0) state.budgetInputs = [defaultBudgetInputRow()];
-          render();
-          return;
-        }
+        state.budgetInputs = (state.budgetInputs || []).filter((x) => x.id !== row.id);
+        const remainingDrafts = (state.budgetInputs || []).filter((x) => x?.isDraft);
+        if (remainingDrafts.length === 0) state.budgetInputs.push(defaultBudgetInputRow());
+        render();
+        toast.show("Deleted successfully", "error");
         btnDelete.disabled = false;
         btnDelete.textContent = originalText;
         btnSave.disabled = false;
@@ -738,7 +777,13 @@ import { createClient } from "@supabase/supabase-js";
           const ok = await upsertBudgetInputToDb(row);
           if (!ok) return;
           btnSave.textContent = "Saved";
-          setTimeout(restore, 700);
+          // Remove the draft row from the input table and refresh saved inputs.
+          state.budgetInputs = (state.budgetInputs || []).filter((x) => x.id !== row.id);
+          const remainingDrafts = (state.budgetInputs || []).filter((x) => x?.isDraft);
+          if (remainingDrafts.length === 0) state.budgetInputs.push(defaultBudgetInputRow());
+          await loadBudgetInputsFromDb();
+          toast.show("Saved successfully", "success");
+          setTimeout(restore, 300);
         } finally {
           clearTimeout(safety);
           if (!finished && btnSave.textContent !== "Saved") restore();
@@ -761,7 +806,9 @@ import { createClient } from "@supabase/supabase-js";
     if (!el.expenseTbody) return;
     el.expenseTbody.innerHTML = "";
 
-    state.expenses.forEach((exp, i) => {
+    const draftRows = (state.expenses || []).filter((r) => r?.isDraft);
+
+    draftRows.forEach((exp, i) => {
       const tr = document.createElement("tr");
 
       const tdIndex = document.createElement("td");
@@ -770,8 +817,6 @@ import { createClient } from "@supabase/supabase-js";
       const tdObject = document.createElement("td");
       const objectSelect = createSelect(objectOfExpenditures, exp.objectOfExpenditure, (val) => {
         exp.objectOfExpenditure = val;
-        void upsertExpenseToDb(exp);
-        renderSummaries();
         setError(null);
       }, "Object of Expenditures");
       tdObject.appendChild(objectSelect);
@@ -779,8 +824,6 @@ import { createClient } from "@supabase/supabase-js";
       const tdProvince = document.createElement("td");
       const provinceSelect = createSelect(provinces, exp.province, (val) => {
         exp.province = val;
-        void upsertExpenseToDb(exp);
-        renderSummaries();
         setError(null);
       }, "Province");
       tdProvince.appendChild(provinceSelect);
@@ -789,9 +832,6 @@ import { createClient } from "@supabase/supabase-js";
       let expenseAmountInput;
       const budgetSelect = createSelect(budgetCodes, exp.budgetCode, (val) => {
         exp.budgetCode = val;
-
-        void upsertExpenseToDb(exp);
-        renderSummaries();
         setError(null);
       }, "Budget Code");
       tdBudget.appendChild(budgetSelect);
@@ -814,9 +854,6 @@ import { createClient } from "@supabase/supabase-js";
             inputEl.classList.remove("invalid");
             setError(null);
           }
-
-          void upsertExpenseToDb(exp);
-          renderSummaries();
         },
       });
       expenseAmountInput.classList.toggle("invalid", Number(exp.expenseAmount) < 0);
@@ -837,13 +874,11 @@ import { createClient } from "@supabase/supabase-js";
         btnDelete.disabled = true;
         btnDelete.textContent = "Deleting...";
         btnSave.disabled = true;
-        const ok = await deleteExpenseFromDb(exp.id);
-        if (ok) {
-          state.expenses = state.expenses.filter((x) => x.id !== exp.id);
-          if (state.expenses.length === 0) state.expenses = [defaultExpenseRow()];
-          render();
-          return;
-        }
+        state.expenses = (state.expenses || []).filter((x) => x.id !== exp.id);
+        const remainingDrafts = (state.expenses || []).filter((x) => x?.isDraft);
+        if (remainingDrafts.length === 0) state.expenses.push(defaultExpenseRow());
+        render();
+        toast.show("Deleted successfully", "error");
         btnDelete.disabled = false;
         btnDelete.textContent = originalText;
         btnSave.disabled = false;
@@ -883,7 +918,13 @@ import { createClient } from "@supabase/supabase-js";
           const ok = await upsertExpenseToDb(exp);
           if (!ok) return;
           btnSave.textContent = "Saved";
-          setTimeout(restore, 700);
+          toast.show("Saved successfully", "success");
+          // Remove the draft row from the input table and refresh saved expenses.
+          state.expenses = (state.expenses || []).filter((x) => x.id !== exp.id);
+          const remainingDrafts = (state.expenses || []).filter((x) => x?.isDraft);
+          if (remainingDrafts.length === 0) state.expenses.push(defaultExpenseRow());
+          await loadExpensesFromDb();
+          setTimeout(restore, 300);
         } finally {
           clearTimeout(safety);
           if (!finished && btnSave.textContent !== "Saved") restore();
@@ -914,6 +955,7 @@ import { createClient } from "@supabase/supabase-js";
     }
 
     for (const bi of state.budgetInputs || []) {
+      if (bi?.isDraft) continue;
       const key = `${bi.objectOfExpenditure}|${bi.province}|${bi.budgetCode}`;
       allocatedByDetail.set(key, Number(bi.proposedAmount) || 0);
       allocatedByBudgetCode.set(
@@ -923,6 +965,7 @@ import { createClient } from "@supabase/supabase-js";
     }
 
     for (const exp of state.expenses) {
+      if (exp?.isDraft) continue;
       const expense = Number(exp.expenseAmount) || 0;
       const amt = expense;
 
@@ -1026,16 +1069,6 @@ import { createClient } from "@supabase/supabase-js";
     el.btnAddRow.addEventListener("click", () => {
       const row = defaultExpenseRow();
       state.expenses.push(row);
-      void upsertExpenseToDb(row);
-      render();
-    });
-  }
-
-  if (el.btnReset) {
-    el.btnReset.addEventListener("click", () => {
-      state = { expenses: [defaultExpenseRow()], budgetInputs: [defaultBudgetInputRow()] };
-      setError("Reset only clears the current view. To clear all data in Supabase, delete rows from the 'expenses' table.");
-      setError(null);
       render();
     });
   }

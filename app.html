@@ -11,19 +11,17 @@
     <header class="header">
       <div>
         <h1>Simple Budgeting Tool</h1>
-        <p class="subtitle">Expense input only. Totals/subtotals update automatically.</p>
       </div>
       <div class="header-actions">
         <span id="authStatus" class="subtitle"></span>
         <button id="btnLogout" class="btn" type="button" hidden>Logout</button>
-        <button id="btnReset" class="btn" type="button">Reset</button>
       </div>
     </header>
 
     <section class="card">
       <h2>Budget Input</h2>
       <div class="header-actions" style="justify-content: flex-end; margin: 10px 0 0;">
-        <button id="btnAddBudgetRow" class="btn primary" type="button">Add Budget Row</button>
+        <button id="btnAddBudgetRow" class="btn add-row" type="button">Add Budget Row</button>
       </div>
       <div class="table-wrap" role="region" aria-label="Budget Input Table" tabindex="0">
         <table class="table" aria-describedby="budgetHelp">
@@ -48,7 +46,7 @@
     <section class="card">
       <h2>Expense Input</h2>
       <div class="header-actions" style="justify-content: flex-end; margin: 10px 0 0;">
-        <button id="btnAddRow" class="btn primary" type="button">Add Expense Row</button>
+        <button id="btnAddRow" class="btn add-row" type="button">Add Expense Row</button>
       </div>
       <div class="table-wrap" role="region" aria-label="Expense Input Table" tabindex="0">
         <table class="table" aria-describedby="expenseHelp">
@@ -68,7 +66,6 @@
       <p id="expenseHelp" class="help">
         Object of Expenditures, Provinces, and Budget Codes are dropdowns. Amounts must be 0 or higher.
       </p>
-      <div id="errorBox" class="error" hidden></div>
     </section>
 
     <section class="card">
