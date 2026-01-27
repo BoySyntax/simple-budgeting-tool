@@ -1556,7 +1556,15 @@ import { createClient } from "@supabase/supabase-js";
         // Clear form
         el.transferAmount.value = "";
         el.transferReason.value = "";
+        if (el.transferFromObject) el.transferFromObject.value = "";
+        if (el.transferFromProvince) el.transferFromProvince.value = "";
+        if (el.transferFromBudget) el.transferFromBudget.value = "";
+        if (el.transferToObject) el.transferToObject.value = "";
+        if (el.transferToProvince) el.transferToProvince.value = "";
+        if (el.transferToBudget) el.transferToBudget.value = "";
         updateRemainingDisplay();
+        updateFromBudgetDisplay();
+        updateToBudgetDisplay();
 
         toast.show("Budget transferred successfully", "success");
       } catch (err) {
