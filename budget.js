@@ -87,8 +87,47 @@ import { createClient } from "@supabase/supabase-js";
     return expense;
   }
 
-  function renderBudgetOverview({ budgetCode, category, expenses, budgetInputs }) {
+  async function loadBudgetTransfersFromDb() {
+    const { data, error } = await supabase
+      .from("budget_transfers")
+      .select("from_object,from_province,from_budget,to_object,to_province,to_budget,amount,created_at")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data || []).map((row) => ({
+      fromObject: row.from_object,
+      fromProvince: row.from_province,
+      fromBudget: row.from_budget,
+      toObject: row.to_object,
+      toProvince: row.to_province,
+      toBudget: row.to_budget,
+      amount: Number(row.amount) || 0,
+      createdAt: row.created_at,
+    }));
+  }
+
+  function formatSignedMoney(n) {
+    const num = Number(n) || 0;
+    const abs = Math.abs(num);
+    const prefix = num > 0 ? "+" : num < 0 ? "-" : "";
+    return prefix + money(abs);
+  }
+
+  function formatTransferBreakdown({ transferIn, transferOut }) {
+    const parts = [];
+    if (Number(transferIn) > 0) parts.push(`<span class="transfer-plus">(+${money(transferIn)})</span>`);
+    if (Number(transferOut) > 0) parts.push(`<span class="transfer-minus">(-${money(transferOut)})</span>`);
+    if (parts.length === 0) return "";
+    return parts.join(" ");
+  }
+
+  function renderBudgetOverview({ budgetCode, category, expenses, budgetInputs, transfers }) {
     el.budgetOverviewTbody.innerHTML = "";
+
+    const relevantTransfers = (transfers || []).filter(
+      (t) =>
+        (t.fromObject === category && t.fromBudget === budgetCode) ||
+        (t.toObject === category && t.toBudget === budgetCode)
+    );
 
     for (const province of provinces) {
       const matchedExpenses = expenses.filter(
@@ -97,6 +136,14 @@ import { createClient } from "@supabase/supabase-js";
       const matchedBudgets = budgetInputs.filter(
         (b) => b.objectOfExpenditure === category && b.budgetCode === budgetCode && b.province === province
       );
+
+      const transferIn = relevantTransfers
+        .filter((t) => t.toObject === category && t.toBudget === budgetCode && t.toProvince === province)
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const transferOut = relevantTransfers
+        .filter((t) => t.fromObject === category && t.fromBudget === budgetCode && t.fromProvince === province)
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const transferNet = transferIn - transferOut;
 
       const allocated = matchedBudgets.reduce((sum, b) => sum + (Number(b.proposedAmount) || 0), 0);
       const spent = matchedExpenses.reduce((sum, e) => sum + computeSpent(e), 0);
@@ -117,9 +164,14 @@ import { createClient } from "@supabase/supabase-js";
       }
 
       const tr = document.createElement("tr");
+      const transferBreakdown = formatTransferBreakdown({ transferIn, transferOut });
+      const allocatedCell =
+        transferNet === 0
+          ? `${money(allocated)}`
+          : `${money(allocated)} ${transferBreakdown}`;
       tr.innerHTML = `
         <td>${province}</td>
-        <td class="num">${money(allocated)}</td>
+        <td class="num">${allocatedCell}</td>
         <td class="num">${money(spent)}</td>
         <td class="num">${money(remaining)}</td>
         <td class="${statusClass}">${status}</td>
@@ -202,7 +254,14 @@ import { createClient } from "@supabase/supabase-js";
 
     const expenses = await loadExpensesFromDb();
     const budgetInputs = await loadBudgetInputsFromDb();
-    renderBudgetOverview({ budgetCode, category, expenses, budgetInputs });
+    let transfers = [];
+    try {
+      transfers = await loadBudgetTransfersFromDb();
+    } catch (err) {
+      // Ignore if the budget_transfers table hasn't been created yet.
+      transfers = [];
+    }
+    renderBudgetOverview({ budgetCode, category, expenses, budgetInputs, transfers });
 
     if (el.expenseDeductionsFilter) {
       // Populate province filter options (keeps the existing "All Provinces" option).

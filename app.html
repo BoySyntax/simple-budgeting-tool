@@ -86,6 +86,89 @@
       </div>
     </section>
 
+    <section class="card">
+      <h2>Budget Transfer</h2>
+      <div class="transfer-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label>From (Object of Expenditure)</label>
+            <select id="transferFromObject" class="input"></select>
+          </div>
+          <div class="form-group">
+            <label>From (Province)</label>
+            <select id="transferFromProvince" class="input"></select>
+          </div>
+          <div class="form-group">
+            <label>From (Budget Code)</label>
+            <select id="transferFromBudget" class="input"></select>
+          </div>
+        </div>
+        <div class="budget-display" id="fromBudgetDisplay" style="display: none;">
+          <div class="budget-info">
+            <span class="budget-label">Current Allocated Budget:</span>
+            <span class="budget-amount" id="fromBudgetAmount">₱0.00</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>To (Object of Expenditure)</label>
+            <select id="transferToObject" class="input"></select>
+          </div>
+          <div class="form-group">
+            <label>To (Province)</label>
+            <select id="transferToProvince" class="input"></select>
+          </div>
+          <div class="form-group">
+            <label>To (Budget Code)</label>
+            <select id="transferToBudget" class="input"></select>
+          </div>
+        </div>
+        <div class="budget-display" id="toBudgetDisplay" style="display: none;">
+          <div class="budget-info">
+            <span class="budget-label">Current Allocated Budget:</span>
+            <span class="budget-amount" id="toBudgetAmount">₱0.00</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Amount to Transfer</label>
+            <input id="transferAmount" class="input" type="number" min="0" step="0.01" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label>Remaining After Transfer:</label>
+            <div class="remaining-display" id="fromRemainingDisplay">
+              <span class="budget-amount" id="fromRemaining">₱0.00</span>
+            </div>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label>Reason</label>
+            <input id="transferReason" class="input" type="text" placeholder="Enter reason for transfer">
+          </div>
+        </div>
+        <div class="form-row">
+          <button id="btnTransfer" class="btn primary" type="button">Transfer Budget</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 20px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>From</th>
+              <th>To</th>
+              <th class="num">Amount</th>
+              <th>Reason</th>
+              <th>User</th>
+            </tr>
+          </thead>
+          <tbody id="transferLogTbody"></tbody>
+        </table>
+      </div>
+      <div class="header-actions" style="justify-content: flex-end; margin-top: 10px;">
+        <button id="btnTransferLogToggle" class="btn" type="button" style="display: none;">See more</button>
+      </div>
+    </section>
+
     <footer class="footer">
       <span class="muted">Data is stored in Supabase (PostgreSQL). This page requires login.</span>
     </footer>

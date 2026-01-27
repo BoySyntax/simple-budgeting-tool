@@ -280,6 +280,23 @@ import { createClient } from "@supabase/supabase-js";
     authStatus: document.getElementById("authStatus"),
     btnAddBudgetRow: document.getElementById("btnAddBudgetRow"),
     btnAddRow: document.getElementById("btnAddRow"),
+    transferFromObject: document.getElementById("transferFromObject"),
+    transferFromProvince: document.getElementById("transferFromProvince"),
+    transferFromBudget: document.getElementById("transferFromBudget"),
+    transferToObject: document.getElementById("transferToObject"),
+    transferToProvince: document.getElementById("transferToProvince"),
+    transferToBudget: document.getElementById("transferToBudget"),
+    transferAmount: document.getElementById("transferAmount"),
+    transferReason: document.getElementById("transferReason"),
+    btnTransfer: document.getElementById("btnTransfer"),
+    transferLogTbody: document.getElementById("transferLogTbody"),
+    btnTransferLogToggle: document.getElementById("btnTransferLogToggle"),
+    fromBudgetDisplay: document.getElementById("fromBudgetDisplay"),
+    fromBudgetAmount: document.getElementById("fromBudgetAmount"),
+    toBudgetDisplay: document.getElementById("toBudgetDisplay"),
+    toBudgetAmount: document.getElementById("toBudgetAmount"),
+    fromRemainingDisplay: document.getElementById("fromRemainingDisplay"),
+    fromRemaining: document.getElementById("fromRemaining"),
   };
 
   const isLoginPage = Boolean(el.btnLogin || el.btnGoogle);
@@ -546,7 +563,7 @@ import { createClient } from "@supabase/supabase-js";
       province: provinces.includes(e?.province) ? e.province : "",
       budgetCode: budgetCodes.includes(e?.budgetCode) ? e.budgetCode : "",
       proposedAmount: Number.isFinite(Number(e?.proposedAmount)) ? Number(e.proposedAmount) : 0,
-      isDraft: false,
+      isDraft: Boolean(e?.isDraft),
     };
   }
 
@@ -554,6 +571,8 @@ import { createClient } from "@supabase/supabase-js";
     expenses: [defaultExpenseRow()],
     budgetInputs: [defaultBudgetInputRow()],
     budgetSummarySearch: "",
+    transferLogExpanded: false,
+    transferLogRows: [],
   };
 
   function matchesSmart(text, query) {
@@ -1299,6 +1318,332 @@ import { createClient } from "@supabase/supabase-js";
         setError(String(err?.message || err));
       }
     });
+  }
+
+  // Initialize transfer form dropdowns
+  function initTransferForm() {
+    if (!el.transferFromObject || !el.transferToObject) return;
+
+    // Populate dropdowns
+    const populateSelect = (selectElement, options, includeEmpty = true) => {
+      selectElement.innerHTML = "";
+      if (includeEmpty) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Select...";
+        selectElement.appendChild(option);
+      }
+      options.forEach((opt) => {
+        const option = document.createElement("option");
+        option.value = opt;
+        option.textContent = opt;
+        selectElement.appendChild(option);
+      });
+    };
+
+    populateSelect(el.transferFromObject, objectOfExpenditures);
+    populateSelect(el.transferFromProvince, provinces);
+    populateSelect(el.transferFromBudget, budgetCodes);
+    populateSelect(el.transferToObject, objectOfExpenditures);
+    populateSelect(el.transferToProvince, provinces);
+    populateSelect(el.transferToBudget, budgetCodes);
+
+    // Add event listeners for real-time budget display
+    [el.transferFromObject, el.transferFromProvince, el.transferFromBudget].forEach(elem => {
+      elem.addEventListener("change", updateFromBudgetDisplay);
+    });
+    [el.transferToObject, el.transferToProvince, el.transferToBudget].forEach(elem => {
+      elem.addEventListener("change", updateToBudgetDisplay);
+    });
+    el.transferAmount.addEventListener("input", updateRemainingDisplay);
+  }
+
+  // Update from budget display
+  function updateFromBudgetDisplay() {
+    const obj = el.transferFromObject.value;
+    const prov = el.transferFromProvince.value;
+    const bud = el.transferFromBudget.value;
+    
+    if (!obj || !prov || !bud) {
+      el.fromBudgetDisplay.style.display = "none";
+      el.fromRemainingDisplay.style.display = "none";
+      return;
+    }
+
+    const budget = (state.budgetInputs || []).find(
+      b => !b?.isDraft && b.objectOfExpenditure === obj && b.province === prov && b.budgetCode === bud
+    );
+
+    if (budget) {
+      el.fromBudgetAmount.textContent = "₱" + money(budget.proposedAmount);
+      el.fromBudgetDisplay.style.display = "block";
+      // Remaining is only shown when an amount is entered.
+      updateRemainingDisplay();
+    } else {
+      el.fromBudgetDisplay.style.display = "none";
+      el.fromRemainingDisplay.style.display = "none";
+    }
+  }
+
+  // Update to budget display
+  function updateToBudgetDisplay() {
+    const obj = el.transferToObject.value;
+    const prov = el.transferToProvince.value;
+    const bud = el.transferToBudget.value;
+    
+    if (!obj || !prov || !bud) {
+      el.toBudgetDisplay.style.display = "none";
+      return;
+    }
+
+    const budget = (state.budgetInputs || []).find(
+      b => !b?.isDraft && b.objectOfExpenditure === obj && b.province === prov && b.budgetCode === bud
+    );
+
+    if (budget) {
+      el.toBudgetAmount.textContent = "₱" + money(budget.proposedAmount);
+      el.toBudgetDisplay.style.display = "block";
+    } else {
+      el.toBudgetAmount.textContent = "₱0.00";
+      el.toBudgetDisplay.style.display = "block";
+    }
+  }
+
+  // Update remaining display
+  function updateRemainingDisplay() {
+    const obj = el.transferFromObject.value;
+    const prov = el.transferFromProvince.value;
+    const bud = el.transferFromBudget.value;
+    const amount = Number(el.transferAmount.value) || 0;
+    
+    if (!obj || !prov || !bud) {
+      el.fromRemainingDisplay.style.display = "none";
+      return;
+    }
+
+    // Hide until the user actually enters an amount.
+    if (amount <= 0) {
+      el.fromRemainingDisplay.style.display = "none";
+      el.fromRemainingDisplay.classList.remove("warning", "danger");
+      return;
+    }
+
+    const budget = (state.budgetInputs || []).find(
+      b => !b?.isDraft && b.objectOfExpenditure === obj && b.province === prov && b.budgetCode === bud
+    );
+
+    if (budget) {
+      const remaining = Number(budget.proposedAmount) - amount;
+      el.fromRemaining.textContent = "₱" + money(remaining);
+      el.fromRemainingDisplay.style.display = "block";
+      
+      // Update styling based on remaining amount
+      el.fromRemainingDisplay.classList.remove("warning", "danger");
+      if (remaining < 0) {
+        el.fromRemainingDisplay.classList.add("danger");
+      } else if (remaining < Number(budget.proposedAmount) * 0.2) {
+        el.fromRemainingDisplay.classList.add("warning");
+      }
+    } else {
+      el.fromRemainingDisplay.style.display = "none";
+      el.fromRemainingDisplay.classList.remove("warning", "danger");
+    }
+  }
+
+  // Handle transfer button click
+  if (el.btnTransfer) {
+    let transferInFlight = false;
+    el.btnTransfer.addEventListener("click", async () => {
+      if (transferInFlight) return;
+      transferInFlight = true;
+
+      const originalText = el.btnTransfer.textContent;
+      el.btnTransfer.disabled = true;
+      el.btnTransfer.textContent = "Transferring...";
+
+      const fromObj = el.transferFromObject.value;
+      const fromProv = el.transferFromProvince.value;
+      const fromBud = el.transferFromBudget.value;
+      const toObj = el.transferToObject.value;
+      const toProv = el.transferToProvince.value;
+      const toBud = el.transferToBudget.value;
+      const amount = Number(el.transferAmount.value);
+      const reason = el.transferReason.value.trim();
+
+      // Validation
+      if (!fromObj || !fromProv || !fromBud || !toObj || !toProv || !toBud) {
+        toast.show("Please fill in all From and To fields", "error");
+        return;
+      }
+      if (!amount || amount <= 0) {
+        toast.show("Please enter a valid transfer amount", "error");
+        return;
+      }
+      if (!reason) {
+        toast.show("Please enter a reason for the transfer", "error");
+        return;
+      }
+      if (fromObj === toObj && fromProv === toProv && fromBud === toBud) {
+        toast.show("Cannot transfer to the same budget line", "error");
+        return;
+      }
+
+      // Check if source has sufficient budget
+      const sourceBudget = (state.budgetInputs || []).find(
+        (b) => !b?.isDraft && b.objectOfExpenditure === fromObj && b.province === fromProv && b.budgetCode === fromBud
+      );
+      if (!sourceBudget || Number(sourceBudget.proposedAmount) < amount) {
+        toast.show("Insufficient budget in source account", "error");
+        return;
+      }
+
+      // Perform transfer
+      try {
+        // Update source budget (reduce)
+        sourceBudget.proposedAmount = Number(sourceBudget.proposedAmount) - amount;
+        const ok1 = await upsertBudgetInputToDb(sourceBudget);
+        if (!ok1) {
+          toast.show("Failed to update source budget", "error");
+          return;
+        }
+
+        // Update or create target budget (increase)
+        let targetBudget = (state.budgetInputs || []).find(
+          (b) => !b?.isDraft && b.objectOfExpenditure === toObj && b.province === toProv && b.budgetCode === toBud
+        );
+        if (targetBudget) {
+          targetBudget.proposedAmount = Number(targetBudget.proposedAmount) + amount;
+        } else {
+          targetBudget = {
+            id: uid(),
+            objectOfExpenditure: toObj,
+            province: toProv,
+            budgetCode: toBud,
+            proposedAmount: amount,
+            isDraft: false,
+          };
+          state.budgetInputs.push(targetBudget);
+        }
+        const ok2 = await upsertBudgetInputToDb(targetBudget);
+        if (!ok2) {
+          toast.show("Failed to update target budget", "error");
+          return;
+        }
+
+        // Log the transfer
+        await logTransfer({
+          fromObject: fromObj,
+          fromProvince: fromProv,
+          fromBudget: fromBud,
+          toObject: toObj,
+          toProvince: toProv,
+          toBudget: toBud,
+          amount: amount,
+          reason: reason,
+          user: currentUser?.email || "Unknown",
+        });
+
+        await loadTransferLog();
+
+        // Refresh data
+        await loadBudgetInputsFromDb();
+        render();
+        
+        // Update displays
+        updateFromBudgetDisplay();
+        updateToBudgetDisplay();
+
+        // Clear form
+        el.transferAmount.value = "";
+        el.transferReason.value = "";
+        updateRemainingDisplay();
+
+        toast.show("Budget transferred successfully", "success");
+      } catch (err) {
+        toast.show("Transfer failed: " + String(err?.message || err), "error");
+      } finally {
+        transferInFlight = false;
+        el.btnTransfer.disabled = false;
+        el.btnTransfer.textContent = originalText;
+      }
+    });
+  }
+
+  // Log transfer to database (you'll need to create this table in Supabase)
+  async function logTransfer(transferData) {
+    if (!supabase) return;
+    const { error } = await supabase.from("budget_transfers").insert({
+      from_object: transferData.fromObject,
+      from_province: transferData.fromProvince,
+      from_budget: transferData.fromBudget,
+      to_object: transferData.toObject,
+      to_province: transferData.toProvince,
+      to_budget: transferData.toBudget,
+      amount: transferData.amount,
+      reason: transferData.reason,
+      user_email: transferData.user,
+      created_at: new Date().toISOString(),
+    });
+    if (error) console.error("Failed to log transfer:", error);
+  }
+
+  // Load and display transfer log
+  async function loadTransferLog() {
+    if (!supabase || !el.transferLogTbody) return;
+    const { data, error } = await supabase
+      .from("budget_transfers")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("Failed to load transfer log:", error);
+      return;
+    }
+    state.transferLogRows = data || [];
+    renderTransferLog(state.transferLogRows);
+  }
+
+  // Render transfer log table
+  function renderTransferLog(transfers) {
+    if (!el.transferLogTbody) return;
+    el.transferLogTbody.innerHTML = "";
+    const all = transfers || [];
+    const limit = state.transferLogExpanded ? all.length : 5;
+    const rows = all.slice(0, limit);
+
+    if (el.btnTransferLogToggle) {
+      el.btnTransferLogToggle.style.display = all.length > 5 ? "inline-flex" : "none";
+      el.btnTransferLogToggle.textContent = state.transferLogExpanded ? "See less" : "See more";
+    }
+
+    rows.forEach((t) => {
+      const tr = document.createElement("tr");
+      const date = new Date(t.created_at).toLocaleDateString();
+      const from = `${t.from_object} - ${t.from_province} - ${t.from_budget}`;
+      const to = `${t.to_object} - ${t.to_province} - ${t.to_budget}`;
+      
+      tr.innerHTML = `
+        <td>${date}</td>
+        <td>${from}</td>
+        <td>${to}</td>
+        <td class="num">${money(t.amount)}</td>
+        <td>${t.reason}</td>
+        <td>${t.user_email}</td>
+      `;
+      el.transferLogTbody.appendChild(tr);
+    });
+  }
+
+  if (el.btnTransferLogToggle) {
+    el.btnTransferLogToggle.addEventListener("click", () => {
+      state.transferLogExpanded = !state.transferLogExpanded;
+      renderTransferLog(state.transferLogRows);
+    });
+  }
+
+  // Initialize transfer functionality
+  if (!isLoginPage) {
+    initTransferForm();
+    loadTransferLog();
   }
 
   initAuth();
