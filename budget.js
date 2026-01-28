@@ -34,6 +34,7 @@ import { createClient } from "@supabase/supabase-js";
     budgetOverviewTbody: document.getElementById("budgetOverviewTbody"),
     expenseDeductionsTbody: document.getElementById("expenseDeductionsTbody"),
     expenseDeductionsFilter: document.getElementById("expenseDeductionsFilter"),
+    btnDownload: document.getElementById("btnDownload"),
     btnBack: document.getElementById("btnBack"),
   };
 
@@ -118,6 +119,144 @@ import { createClient } from "@supabase/supabase-js";
     if (Number(transferOut) > 0) parts.push(`<span class="transfer-minus">(-${money(transferOut)})</span>`);
     if (parts.length === 0) return "";
     return parts.join(" ");
+  }
+
+  function csvEscape(v) {
+    const s = String(v ?? "");
+    if (/[\n\r",]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+
+  function toCsv(rows) {
+    return rows.map((r) => r.map(csvEscape).join(",")).join("\n");
+  }
+
+  function downloadTextFile({ filename, content, mime }) {
+    const blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function htmlEscape(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function buildHtmlTable({ title, headers, rows }) {
+    const thead = `
+      <thead>
+        <tr>
+          ${headers.map((h) => `<th>${htmlEscape(h)}</th>`).join("")}
+        </tr>
+      </thead>`;
+
+    const tbody = `
+      <tbody>
+        ${rows
+          .map(
+            (r) => `
+          <tr>
+            ${r.map((c) => `<td>${htmlEscape(c)}</td>`).join("")}
+          </tr>`
+          )
+          .join("")}
+      </tbody>`;
+
+    return `
+      <h2>${htmlEscape(title)}</h2>
+      <table>
+        ${thead}
+        ${tbody}
+      </table>`;
+  }
+
+  function buildExcelHtml({ sheetName, bodyHtml }) {
+    return `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:x="urn:schemas-microsoft-com:office:excel"
+            xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8" />
+          <xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>${htmlEscape(sheetName)}</x:Name>
+                  <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml>
+          <style>
+            body { font-family: Arial, sans-serif; }
+            h2 { margin: 16px 0 8px; font-size: 14pt; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 18px; table-layout: fixed; }
+            th, td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+            th { background: #1e3a8a; color: #ffffff; font-weight: 700; }
+            td.num { text-align: right; }
+            .meta { margin-bottom: 10px; }
+            .meta td { border: none; padding: 2px 0; }
+          </style>
+        </head>
+        <body>
+          ${bodyHtml}
+        </body>
+      </html>`;
+  }
+
+  function buildBudgetOverviewRows({ budgetCode, category, expenses, budgetInputs, transfers }) {
+    const relevantTransfers = (transfers || []).filter(
+      (t) =>
+        (t.fromObject === category && t.fromBudget === budgetCode) ||
+        (t.toObject === category && t.toBudget === budgetCode)
+    );
+
+    const rows = [];
+    for (const province of provinces) {
+      const matchedExpenses = (expenses || []).filter(
+        (e) => e.objectOfExpenditure === category && e.budgetCode === budgetCode && e.province === province
+      );
+      const matchedBudgets = (budgetInputs || []).filter(
+        (b) => b.objectOfExpenditure === category && b.budgetCode === budgetCode && b.province === province
+      );
+
+      const transferIn = relevantTransfers
+        .filter((t) => t.toObject === category && t.toBudget === budgetCode && t.toProvince === province)
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const transferOut = relevantTransfers
+        .filter((t) => t.fromObject === category && t.fromBudget === budgetCode && t.fromProvince === province)
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+      const allocated = matchedBudgets.reduce((sum, b) => sum + (Number(b.proposedAmount) || 0), 0);
+      const spent = matchedExpenses.reduce((sum, e) => sum + computeSpent(e), 0);
+      const remaining = allocated - spent;
+
+      let status = "Within Budget";
+      if (allocated === 0 && spent === 0) status = "";
+      else if (remaining < 0) status = "Over Budget";
+      else if (remaining === 0) status = "Budget Met";
+
+      rows.push({
+        province,
+        allocated,
+        transferIn,
+        transferOut,
+        spent,
+        remaining,
+        status,
+      });
+    }
+    return rows;
   }
 
   function renderBudgetOverview({ budgetCode, category, expenses, budgetInputs, transfers }) {
@@ -231,6 +370,15 @@ import { createClient } from "@supabase/supabase-js";
     }
   }
 
+  function sanitizeFilenamePart(s) {
+    return String(s || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[^a-z0-9 \-_.]/gi, "")
+      .replace(/\s/g, "_")
+      .slice(0, 80);
+  }
+
   async function init() {
     const { budgetCode, category } = getBudgetFromURL();
     if (!budgetCode || !category) {
@@ -262,6 +410,86 @@ import { createClient } from "@supabase/supabase-js";
       transfers = [];
     }
     renderBudgetOverview({ budgetCode, category, expenses, budgetInputs, transfers });
+
+    if (el.btnDownload) {
+      el.btnDownload.addEventListener("click", () => {
+        const overviewRows = buildBudgetOverviewRows({ budgetCode, category, expenses, budgetInputs, transfers });
+        const overviewTable = buildHtmlTable({
+          title: "Budget Overview",
+          headers: ["Province", "Budget", "Transfer In (+)", "Transfer Out (-)", "Expense", "Remaining", "Status"],
+          rows: overviewRows.map((r) => [
+            r.province,
+            money(r.allocated),
+            money(r.transferIn),
+            money(r.transferOut),
+            money(r.spent),
+            money(r.remaining),
+            r.status,
+          ]),
+        });
+
+        const provinceFilter = el.expenseDeductionsFilter?.value || "";
+        const expenseRows = (expenses || [])
+          .filter((e) => e.objectOfExpenditure === category && e.budgetCode === budgetCode)
+          .filter((e) => (!provinceFilter ? true : e.province === provinceFilter))
+          .filter((e) => Number(e.expenseAmount) > 0)
+          .slice();
+
+        const expenseTable = buildHtmlTable({
+          title: `Expense Deductions (${provinceFilter || "All Provinces"})`,
+          headers: ["Province", "Expense Amount"],
+          rows: expenseRows.map((e) => [e.province || "-", money(Number(e.expenseAmount) || 0)]),
+        });
+
+        const transferRows = (transfers || []).filter(
+          (t) =>
+            (t.fromObject === category && t.fromBudget === budgetCode) ||
+            (t.toObject === category && t.toBudget === budgetCode)
+        );
+
+        const transfersTable = buildHtmlTable({
+          title: "Budget Transfers (related to this budget line)",
+          headers: [
+            "Date",
+            "From Object",
+            "From Province",
+            "From Budget",
+            "To Object",
+            "To Province",
+            "To Budget",
+            "Amount",
+          ],
+          rows: transferRows.map((t) => [
+            t.createdAt ? new Date(t.createdAt).toLocaleString() : "",
+            t.fromObject,
+            t.fromProvince,
+            t.fromBudget,
+            t.toObject,
+            t.toProvince,
+            t.toBudget,
+            money(Number(t.amount) || 0),
+          ]),
+        });
+
+        const metaTable = `
+          <table class="meta">
+            <tr><td><strong>Category:</strong> ${htmlEscape(category)}</td></tr>
+            <tr><td><strong>Budget Code:</strong> ${htmlEscape(budgetCode)}</td></tr>
+            <tr><td><strong>Exported At:</strong> ${htmlEscape(new Date().toLocaleString())}</td></tr>
+          </table>`;
+
+        const sheetName = `${sanitizeFilenamePart(category)}_${sanitizeFilenamePart(budgetCode)}`.slice(0, 31);
+        const html = buildExcelHtml({
+          sheetName: sheetName || "BudgetOverview",
+          bodyHtml: `${metaTable}${overviewTable}${expenseTable}${transfersTable}`,
+        });
+
+        const filename = `Budget_Overview_${sanitizeFilenamePart(category)}_${sanitizeFilenamePart(
+          budgetCode
+        )}.xls`;
+        downloadTextFile({ filename, content: html, mime: "application/vnd.ms-excel;charset=utf-8" });
+      });
+    }
 
     if (el.expenseDeductionsFilter) {
       // Populate province filter options (keeps the existing "All Provinces" option).
