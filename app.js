@@ -5,6 +5,34 @@ import { createClient } from "@supabase/supabase-js";
 
   let currentUser = null;
 
+  async function ensureCurrentUser() {
+    if (currentUser) return currentUser;
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) return null;
+      currentUser = data?.session?.user || null;
+      return currentUser;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /** Call before save so the request uses a fresh session. Enables save without reload. */
+  async function refreshSessionBeforeSave() {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (!error && data?.session?.user) {
+        currentUser = data.session.user;
+      } else {
+        currentUser = null;
+      }
+    } catch (_err) {
+      currentUser = null;
+    }
+  }
+
   function isAbortError(err) {
     const name = err?.name;
     const message = String(err?.message || "");
@@ -17,8 +45,9 @@ import { createClient } from "@supabase/supabase-js";
       return false;
     }
 
+    await refreshSessionBeforeSave();
     if (!currentUser) {
-      setError("Not signed in.");
+      setError("Not signed in. Please sign in again.");
       return false;
     }
 
@@ -30,11 +59,11 @@ import { createClient } from "@supabase/supabase-js";
     };
 
     try {
-      const timeoutMs = 30000;
+      const timeoutMs = 60000;
       const timeoutMsg =
         "Save timed out. Open DevTools > Network and check if the /rest/v1/budget_inputs request is failing or blocked.";
 
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const { data, error } = await withAbortableTimeout(
             (signal) =>
@@ -64,8 +93,8 @@ import { createClient } from "@supabase/supabase-js";
             /ERR_/i.test(msg);
 
           console.error("Save failed", { attempt, err });
-          if (attempt < 2 && isNetworkLike) {
-            await sleep(500);
+          if (attempt < 3 && isNetworkLike) {
+            await sleep(200);
             continue;
           }
           setError(msg);
@@ -86,6 +115,7 @@ import { createClient } from "@supabase/supabase-js";
       return false;
     }
 
+    await ensureCurrentUser();
     if (!currentUser) {
       setError("Not signed in.");
       return false;
@@ -112,6 +142,24 @@ import { createClient } from "@supabase/supabase-js";
       if (isAbortError(err)) return false;
       setError(String(err?.message || err));
       return false;
+    }
+  }
+
+  async function logBudgetInputEntry({ objectOfExpenditure, province, budgetCode, amountAdded, userEmail, notes }) {
+    if (!supabase) return;
+    try {
+      const { error } = await supabase.from("budget_input_entries").insert({
+        object_of_expenditure: objectOfExpenditure,
+        province: province,
+        budget_code: budgetCode,
+        amount_added: Number(amountAdded) || 0,
+        notes: notes || null,
+        user_email: userEmail || null,
+        created_at: new Date().toISOString(),
+      });
+      if (error) console.error("Failed to log budget input entry:", error);
+    } catch (err) {
+      console.error("Failed to log budget input entry:", err);
     }
   }
 
@@ -313,14 +361,19 @@ import { createClient } from "@supabase/supabase-js";
     return new URL(getAppPath(), window.location.origin).toString();
   }
 
+  let expensesLoadSeq = 0;
+  let budgetInputsLoadSeq = 0;
+
   async function loadExpensesFromDb() {
     if (!supabase) return;
+    const seq = ++expensesLoadSeq;
     try {
       const { data, error } = await supabase
         .from("expenses")
         .select("id, object_of_expenditure, province, budget_code, expense_amount")
         .order("created_at", { ascending: true });
 
+      if (seq !== expensesLoadSeq) return;
       if (error) {
         setError(error.message);
         return;
@@ -345,18 +398,21 @@ import { createClient } from "@supabase/supabase-js";
       render();
     } catch (err) {
       if (isAbortError(err)) return;
+      if (seq !== expensesLoadSeq) return;
       setError(String(err?.message || err));
     }
   }
 
   async function loadBudgetInputsFromDb() {
     if (!supabase) return;
+    const seq = ++budgetInputsLoadSeq;
     try {
       const { data, error } = await supabase
         .from("budget_inputs")
         .select("id, object_of_expenditure, province, budget_code, proposed_amount")
         .order("created_at", { ascending: true });
 
+      if (seq !== budgetInputsLoadSeq) return;
       if (error) {
         setError(error.message);
         return;
@@ -381,6 +437,7 @@ import { createClient } from "@supabase/supabase-js";
       render();
     } catch (err) {
       if (isAbortError(err)) return;
+      if (seq !== budgetInputsLoadSeq) return;
       setError(String(err?.message || err));
     }
   }
@@ -391,8 +448,9 @@ import { createClient } from "@supabase/supabase-js";
       return false;
     }
 
+    await refreshSessionBeforeSave();
     if (!currentUser) {
-      setError("Not signed in.");
+      setError("Not signed in. Please sign in again.");
       return false;
     }
 
@@ -436,7 +494,7 @@ import { createClient } from "@supabase/supabase-js";
 
           console.error("Save failed", { attempt, err });
           if (attempt < 2 && isNetworkLike) {
-            await sleep(500);
+            await sleep(200);
             continue;
           }
           setError(msg);
@@ -457,6 +515,7 @@ import { createClient } from "@supabase/supabase-js";
       return false;
     }
 
+    await ensureCurrentUser();
     if (!currentUser) {
       setError("Not signed in.");
       return false;
@@ -573,6 +632,7 @@ import { createClient } from "@supabase/supabase-js";
     budgetSummarySearch: "",
     transferLogExpanded: false,
     transferLogRows: [],
+    savingBudgetRowId: null,
   };
 
   function matchesSmart(text, query) {
@@ -692,14 +752,36 @@ import { createClient } from "@supabase/supabase-js";
     return select;
   }
 
-  function createInput({ type = "text", value = "", onInput, className = "input", step } = {}) {
+  function createInput({
+    type = "text",
+    value = "",
+    onInput,
+    onFocus,
+    onBlur,
+    className = "input",
+    step,
+  } = {}) {
     const input = document.createElement("input");
     input.type = type;
     input.value = value;
     input.className = className;
     if (step != null) input.step = String(step);
     input.addEventListener("input", () => onInput(input.value, input));
+    if (typeof onFocus === "function") input.addEventListener("focus", () => onFocus(input.value, input));
+    if (typeof onBlur === "function") input.addEventListener("blur", () => onBlur(input.value, input));
     return input;
+  }
+
+  function parseMoneyInput(val) {
+    const s = String(val ?? "").replace(/,/g, "").trim();
+    if (!s) return 0;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function formatMoneyInput(n) {
+    const num = Number(n) || 0;
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   function validateExpense(e) {
@@ -756,12 +838,37 @@ import { createClient } from "@supabase/supabase-js";
       const tdProposed = document.createElement("td");
       tdProposed.className = "num";
       const proposedInput = createInput({
-        type: "number",
-        value: String(row.proposedAmount ?? 0),
-        step: 0.01,
+        type: "text",
+        value: formatMoneyInput(row.proposedAmount ?? 0),
         onInput: (val, inputEl) => {
-          const num = Number(val);
-          row.proposedAmount = Number.isFinite(num) ? num : 0;
+          const num = parseMoneyInput(val);
+          row.proposedAmount = num;
+
+          const err = validateBudgetInputRow(row);
+          if (err) {
+            inputEl.classList.add("invalid");
+            setError(err);
+          } else {
+            inputEl.classList.remove("invalid");
+            setError(null);
+          }
+        },
+        onFocus: (_val, inputEl) => {
+          const num = Number(row.proposedAmount) || 0;
+          if (num === 0) inputEl.value = "";
+          // Put cursor at end for easier typing.
+          queueMicrotask(() => {
+            try {
+              inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+            } catch (_err) {
+              // ignore
+            }
+          });
+        },
+        onBlur: (val, inputEl) => {
+          const num = parseMoneyInput(val);
+          row.proposedAmount = num;
+          inputEl.value = formatMoneyInput(num);
 
           const err = validateBudgetInputRow(row);
           if (err) {
@@ -805,36 +912,32 @@ import { createClient } from "@supabase/supabase-js";
       const btnSave = document.createElement("button");
       btnSave.type = "button";
       btnSave.className = "btn primary";
-      btnSave.textContent = "Save";
-      btnSave.addEventListener("click", async () => {
-        if (btnSave.disabled) return;
+      const isSavingThis = state.savingBudgetRowId === row.id;
+      btnSave.textContent = isSavingThis ? "Saving..." : "Save";
+      btnSave.disabled = isSavingThis;
+      btnSave.addEventListener("click", () => {
+        if (state.savingBudgetRowId) return;
         const err = validateBudgetInputRow(row);
         if (err) {
           setError(err);
           return;
         }
-        const originalText = btnSave.textContent;
-        btnSave.disabled = true;
-        btnSave.textContent = "Saving...";
         setError(null);
+        state.savingBudgetRowId = row.id;
+        render();
 
-        let finished = false;
-        const restore = () => {
-          if (finished) return;
-          finished = true;
-          btnSave.textContent = originalText;
-          btnSave.disabled = false;
+        const done = () => {
+          state.savingBudgetRowId = null;
+          render();
         };
 
-        const uiTimeoutMs = 32000;
+        const safetyMs = 8000;
         const safety = setTimeout(() => {
-          setError(
-            "Save timed out. Open DevTools > Network and check if the /rest/v1/budget_inputs request is failing or blocked."
-          );
-          restore();
-        }, uiTimeoutMs);
-        try {
-          // Detect duplicate budget (Object of Expenditure + Province + Budget Code)
+          setError("Save is taking too long. You can try again.");
+          done();
+        }, safetyMs);
+
+        const run = async () => {
           const duplicate = (state.budgetInputs || []).find(
             (x) =>
               !x?.isDraft &&
@@ -844,25 +947,61 @@ import { createClient } from "@supabase/supabase-js";
               x.id !== row.id
           );
           if (duplicate) {
-            toast.show("This expenditure and budget code already has an allocated budget.", "error");
-            restore();
+            const merged = {
+              ...duplicate,
+              proposedAmount: (Number(duplicate.proposedAmount) || 0) + (Number(row.proposedAmount) || 0),
+              isDraft: false,
+            };
+            const ok = await upsertBudgetInputToDb(merged);
+            clearTimeout(safety);
+            if (!ok) {
+              toast.show("Save failed. Check the error above.", "error");
+              done();
+              return;
+            }
+            logBudgetInputEntry({
+              objectOfExpenditure: row.objectOfExpenditure,
+              province: row.province,
+              budgetCode: row.budgetCode,
+              amountAdded: Number(row.proposedAmount) || 0,
+              userEmail: currentUser?.email || null,
+              notes: null,
+            }).catch(() => {});
+            duplicate.proposedAmount = merged.proposedAmount;
+            duplicate.isDraft = false;
+            state.budgetInputs = (state.budgetInputs || []).filter((x) => x.id !== row.id);
+            if ((state.budgetInputs || []).filter((x) => x?.isDraft).length === 0) state.budgetInputs.push(defaultBudgetInputRow());
+            toast.show("Merged into existing allocated budget", "success");
+            done();
             return;
           }
-
           const ok = await upsertBudgetInputToDb(row);
-          if (!ok) return;
-          btnSave.textContent = "Saved";
-          // Remove the draft row from the input table and refresh saved inputs.
-          state.budgetInputs = (state.budgetInputs || []).filter((x) => x.id !== row.id);
-          const remainingDrafts = (state.budgetInputs || []).filter((x) => x?.isDraft);
-          if (remainingDrafts.length === 0) state.budgetInputs.push(defaultBudgetInputRow());
-          await loadBudgetInputsFromDb();
-          toast.show("Saved successfully", "success");
-          setTimeout(restore, 300);
-        } finally {
           clearTimeout(safety);
-          if (!finished && btnSave.textContent !== "Saved") restore();
-        }
+          if (!ok) {
+            toast.show("Save failed. Check the error above.", "error");
+            done();
+            return;
+          }
+          logBudgetInputEntry({
+            objectOfExpenditure: row.objectOfExpenditure,
+            province: row.province,
+            budgetCode: row.budgetCode,
+            amountAdded: Number(row.proposedAmount) || 0,
+            userEmail: currentUser?.email || null,
+            notes: null,
+          }).catch(() => {});
+          row.isDraft = false;
+          if ((state.budgetInputs || []).filter((x) => x?.isDraft).length === 0) state.budgetInputs.push(defaultBudgetInputRow());
+          toast.show("Saved successfully", "success");
+          done();
+        };
+
+        run().catch((err) => {
+          clearTimeout(safety);
+          setError(String(err?.message || err));
+          toast.show("Save failed: " + String(err?.message || err), "error");
+          done();
+        });
       });
       tdAction.appendChild(btnSave);
 
@@ -914,12 +1053,36 @@ import { createClient } from "@supabase/supabase-js";
       const tdExpenseAmount = document.createElement("td");
       tdExpenseAmount.className = "num";
       expenseAmountInput = createInput({
-        type: "number",
-        value: String(exp.expenseAmount ?? 0),
-        step: 0.01,
+        type: "text",
+        value: formatMoneyInput(exp.expenseAmount ?? 0),
         onInput: (val, inputEl) => {
-          const num = Number(val);
-          exp.expenseAmount = Number.isFinite(num) ? num : 0;
+          const num = parseMoneyInput(val);
+          exp.expenseAmount = num;
+
+          const err = validateExpense(exp);
+          if (err) {
+            inputEl.classList.add("invalid");
+            setError(err);
+          } else {
+            inputEl.classList.remove("invalid");
+            setError(null);
+          }
+        },
+        onFocus: (_val, inputEl) => {
+          const num = Number(exp.expenseAmount) || 0;
+          if (num === 0) inputEl.value = "";
+          queueMicrotask(() => {
+            try {
+              inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+            } catch (_err) {
+              // ignore
+            }
+          });
+        },
+        onBlur: (val, inputEl) => {
+          const num = parseMoneyInput(val);
+          exp.expenseAmount = num;
+          inputEl.value = formatMoneyInput(num);
 
           const err = validateExpense(exp);
           if (err) {
@@ -984,22 +1147,31 @@ import { createClient } from "@supabase/supabase-js";
           btnSave.disabled = false;
         };
 
-        const uiTimeoutMs = 32000;
+        const uiTimeoutMs = 15000;
         const safety = setTimeout(() => {
-          setError("Save timed out. Open DevTools > Network and check if the /rest/v1/expenses request is failing or blocked.");
+          setError("Save is taking too long. You can try again or reload the page.");
           restore();
+          render();
         }, uiTimeoutMs);
         try {
           const ok = await upsertExpenseToDb(exp);
-          if (!ok) return;
+          if (!ok) {
+            toast.show("Save failed. Check the error message above.", "error");
+            restore();
+            return;
+          }
           btnSave.textContent = "Saved";
-          toast.show("Saved successfully", "success");
-          // Remove the draft row from the input table and refresh saved expenses.
           state.expenses = (state.expenses || []).filter((x) => x.id !== exp.id);
           const remainingDrafts = (state.expenses || []).filter((x) => x?.isDraft);
           if (remainingDrafts.length === 0) state.expenses.push(defaultExpenseRow());
-          await loadExpensesFromDb();
-          setTimeout(restore, 300);
+          loadExpensesFromDb().catch((e) => console.error("Failed to refresh expenses:", e));
+          toast.show("Saved successfully", "success");
+          setTimeout(restore, 400);
+        } catch (err) {
+          setError(String(err?.message || err));
+          toast.show("Save failed: " + String(err?.message || err), "error");
+          restore();
+          render();
         } finally {
           clearTimeout(safety);
           if (!finished && btnSave.textContent !== "Saved") restore();
@@ -1145,7 +1317,6 @@ import { createClient } from "@supabase/supabase-js";
     el.btnAddBudgetRow.addEventListener("click", () => {
       const row = defaultBudgetInputRow();
       state.budgetInputs.push(row);
-      void upsertBudgetInputToDb(row);
       render();
     });
   }
@@ -1546,7 +1717,7 @@ import { createClient } from "@supabase/supabase-js";
         await loadTransferLog();
 
         // Refresh data
-        await loadBudgetInputsFromDb();
+        loadBudgetInputsFromDb().catch((err) => console.error("Failed to refresh budget inputs:", err));
         render();
         
         // Update displays
@@ -1652,6 +1823,14 @@ import { createClient } from "@supabase/supabase-js";
   if (!isLoginPage) {
     initTransferForm();
     loadTransferLog();
+
+    // When user returns to this tab, clear stuck "Saving..." and refresh session so Save works again
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      state.savingBudgetRowId = null;
+      refreshSessionBeforeSave();
+      render();
+    });
   }
 
   initAuth();
